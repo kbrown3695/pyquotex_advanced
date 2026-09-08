@@ -12,3 +12,6 @@ urllib3==2.5.0
 websocket-client==1.8.0
 fake-useragent==2.2.0
 eel==0.16.0
+# ✅ ML Packages for enhanced signals
+pandas==2.2.0
+scikit-learn==1.4.2

@@ -44,3 +44,11 @@ node_modules/
 
 # Browser data
 browser/
+
+## documentation files & folder
+docs/
+# Allow .md files in root (docs, guides, readmes)
+# Only ignore in subdirs and temp
+temp/
+*.txt
+*.pdf
