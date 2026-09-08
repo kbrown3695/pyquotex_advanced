@@ -1,5 +1,5 @@
 /**
- * 📡 datafeed.js — v1.1 (Improved & Hardened)
+ * 📡 datafeed.js — v1.2 (Incremental UI Updates)
  * =============================================================================
  * ✅ Lazy-cached UI getters for better performance
  * ✅ CONFIG constants instead of magic numbers
@@ -381,25 +381,120 @@ if (typeof eel !== 'undefined' && eel.expose) {
     eel.expose(updateChart);
 }
 
+// ✅ Shared live-indicator update with immediate cleanup on error
+function updateLiveIndicators(candlesSnapshot, lastCandle, isNewCandle) {
+    for (const [name, inst] of Object.entries(AppState.indicators)) {
+        try {
+            if (!inst._initialized) continue;
+
+            if (isNewCandle) {
+                // Full recalculation on new candle
+                inst.update(candlesSnapshot);
+            } else if (inst.hasCustomUpdateLast && inst.hasCustomUpdateLast()) {
+                // Lightweight update for live candle
+                inst.updateLast(lastCandle);
+            }
+        } catch(e) {
+            console.error(`❌ Indicator [${name}] error:`, e);
+
+            // ✅ Immediate cleanup: remove from state regardless of cleanupIndicator result
+            try {
+                if (typeof window.cleanupIndicator === 'function') {
+                    window.cleanupIndicator(name);
+                }
+            } catch(cleanupErr) {
+                console.warn(`⚠️ cleanupIndicator failed for ${name}:`, cleanupErr);
+            } finally {
+                // ✅ Always remove from AppState to prevent further errors
+                delete AppState.indicators[name];
+            }
+
+            // Update UI state
+            if (AppState.editorFiles[name]) {
+                AppState.editorFiles[name].runState = 'error';
+            }
+            if (typeof window.renderTabs === 'function') {
+                window.renderTabs();
+            }
+        }
+    }
+}
+
+// ✅ Incremental update: merge a single latest candle into state + chart
+function applyIncrementalUpdate(lastCandle, data) {
+    // Ignore updates that don't match the active view — a full snapshot follows
+    if (data.asset && data.asset !== AppState.currentAsset) return;
+    if (data.timeframe && data.timeframe !== AppState.currentTimeframe) return;
+
+    const arr = AppState.currentCandles;
+    if (!arr.length) return; // no baseline yet — wait for a full snapshot
+
+    const lastTime = arr[arr.length - 1].time;
+    if (lastCandle.time === lastTime) {
+        arr[arr.length - 1] = lastCandle;
+    } else if (lastCandle.time > lastTime) {
+        arr.push(lastCandle);
+    } else {
+        return; // stale/out-of-order — the next full snapshot corrects it
+    }
+    if (arr.length > CONFIG.MAX_CANDLES_DISPLAY) {
+        arr.splice(0, arr.length - CONFIG.MAX_CANDLES_DISPLAY);
+    }
+
+    AppState.timeframeSeconds = data.timeframe_seconds || AppState.timeframeSeconds;
+    AppState.serverTimeOffset = (data.server_time || 0) - (Date.now() / 1000);
+
+    const isNewCandle = lastCandle.time !== AppState.previousCandleTime;
+    AppState.previousCandleTime = lastCandle.time;
+
+    if (window.candleSeries) {
+        try {
+            window.candleSeries.update(lastCandle);
+        } catch(e) {
+            console.warn('⚠️ Live candle update failed:', e);
+        }
+    }
+
+    if (isNewCandle) {
+        updateCountdown(lastCandle);
+    } else {
+        animateCountdown(lastCandle.close);
+    }
+
+    updateLiveIndicators([...arr], lastCandle, isNewCandle);
+
+    if (CM && typeof CM.markMarkersDirty === 'function') {
+        CM.markMarkersDirty();
+        CM.updateAllMarkers();
+    }
+}
+
 function updateChart(data) {
     try {
         AppState.lastDataTime = Date.now();
         AppState.connectionHealthy = true;
 
+        if (!data || !data.candles || !Array.isArray(data.candles)) {
+            debugLog('📥 Invalid data structure');
+            return;
+        }
+
+        const validCandles = data.candles.filter(isValidCandle);
+        if (!validCandles.length) {
+            debugLog('📥 No valid candles after filtering');
+            return;
+        }
+
+        // ✅ Incremental update: backend sent only the currently forming candle
+        if (data.mode === 'update') {
+            applyIncrementalUpdate(validCandles[validCandles.length - 1], data);
+            return;
+        }
+
+        // Full snapshot path — consume any pending redraw request
         if (AppState.needsFullRedraw) {
             AppState.needsFullRedraw = false;
             AppState.isFirstLoad = true;
-        }
-
-        if (!data || !data.candles || !Array.isArray(data.candles)) { 
-            debugLog('📥 Invalid data structure'); 
-            return; 
-        }
-        
-        const validCandles = data.candles.filter(isValidCandle);
-        if (!validCandles.length) { 
-            debugLog('📥 No valid candles after filtering'); 
-            return; 
         }
 
         // ✅ Create snapshot for safe concurrent reading by indicators
@@ -467,41 +562,7 @@ function updateChart(data) {
         }
 
         // ✅ Indicator Updates: Use snapshot to avoid read/write conflicts
-        for (const [name, inst] of Object.entries(AppState.indicators)) {
-            try {
-                if (!inst._initialized) continue;
-                
-                if (isNewCandle) {
-                    // Full recalculation on new candle
-                    inst.update(candlesSnapshot);
-                } else if (inst.hasCustomUpdateLast && inst.hasCustomUpdateLast()) {
-                    // Lightweight update for live candle
-                    inst.updateLast(lastCandle);
-                }
-            } catch(e) {
-                console.error(`❌ Indicator [${name}] error:`, e);
-                
-                // ✅ Immediate cleanup: remove from state regardless of cleanupIndicator result
-                try {
-                    if (typeof window.cleanupIndicator === 'function') {
-                        window.cleanupIndicator(name);
-                    }
-                } catch(cleanupErr) {
-                    console.warn(`⚠️ cleanupIndicator failed for ${name}:`, cleanupErr);
-                } finally {
-                    // ✅ Always remove from AppState to prevent further errors
-                    delete AppState.indicators[name];
-                }
-                
-                // Update UI state
-                if (AppState.editorFiles[name]) {
-                    AppState.editorFiles[name].runState = 'error';
-                }
-                if (typeof window.renderTabs === 'function') {
-                    window.renderTabs();
-                }
-            }
-        }
+        updateLiveIndicators(candlesSnapshot, lastCandle, isNewCandle);
         
         // ✅ Update markers if chart manager available
         if (CM && typeof CM.markMarkersDirty === 'function') { 
@@ -703,4 +764,4 @@ window.debugLog = debugLog;
 window.ensureCountdownLabel = ensureCountdownLabel;
 window.initChartManager = initChartManager;
 
-console.log('✅ datafeed.js v1.1 loaded — Hardened, cached, and connection-aware');
+console.log('✅ datafeed.js v1.2 loaded — Incremental updates, hardened, connection-aware');

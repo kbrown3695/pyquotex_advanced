@@ -25,6 +25,7 @@ settings/config.ini
 # Environment
 .env
 .env.*
+myenv/
 
 # Media / temp
 *.mp4

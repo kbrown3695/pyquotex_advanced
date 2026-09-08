@@ -4,10 +4,19 @@ import json
 import configparser
 from pathlib import Path
 import threading
-
+from dotenv import load_dotenv 
 from fake_useragent import UserAgent
 
-USER_AGENT = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0"
+# Load .env file
+load_dotenv()
+
+# Get credentials from environment variables
+QUOTEX_EMAIL = os.getenv("QUOTEX_EMAIL")
+QUOTEX_PASSWORD = os.getenv("QUOTEX_PASSWORD")
+USER_AGENT = os.getenv(
+    "USER_AGENT",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0",
+)
 
 base_dir = Path.cwd()
 config_path = Path(os.path.join(base_dir, "settings/config.ini"))
@@ -15,8 +24,16 @@ config = configparser.ConfigParser(interpolation=None)
 
 session_lock = threading.Lock()
 
-def credentials():
 
+def credentials():
+    """Get credentials from .env first, fallback to config.ini"""
+
+    # First try .env
+    if QUOTEX_EMAIL and QUOTEX_PASSWORD:
+        print("✅ Using credentials from .env file")
+        return QUOTEX_EMAIL, QUOTEX_PASSWORD
+
+    # Fallback to config.ini
     if not config_path.exists():
         config_path.parent.mkdir(exist_ok=True, parents=True)
         text_settings = (
@@ -32,7 +49,7 @@ def credentials():
     password = config.get("settings", "password")
 
     if not email or not password:
-        print("Email and password cannot be left blank...")
+        print("❌ Email and password cannot be left blank...")
         sys.exit()
 
     return email, password
@@ -62,10 +79,10 @@ def load_session(email: str, user_agent: str = UserAgent().random):
             all_sessions[email] = {
                 "cookies": None,
                 "token": None,
-                "user_agent": user_agent
+                "user_agent": user_agent,
             }
             output_file.write_text(json.dumps(all_sessions, indent=4))
-        
+
         return all_sessions.get(email)
 
 

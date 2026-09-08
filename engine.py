@@ -49,6 +49,12 @@ except ImportError as e:
     print("Run: pip install git+https://github.com/cleitonleonel/pyquotex.git@master")
     sys.exit(1)
 
+try:
+    from ml_signals import EnsembleSignalGenerator
+except ImportError as e:
+    print(f"⚠️ ML signals not available: {e}")
+    EnsembleSignalGenerator = None
+
 # ======================
 # ⚙️ CONFIG & LOGGING
 # ======================
@@ -108,6 +114,9 @@ SAVED_PASSWORD = None
 IS_RECONNECTING = False
 RECONNECT_COOLDOWN = 30
 LAST_RECONNECT_TIME = 0
+
+# ML Signal Generator
+ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
 
 # ✅ تحسين #5: أوقات مخفضة
 TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
@@ -931,6 +940,49 @@ def get_connection_status():
             "last_sub_age": round(time.time() - LAST_SUBSCRIPTION_TIME, 1)
         }
     return {"connected": False}
+
+@eel.expose
+def train_ml_signals():
+    """Train ML model on recent candles for current asset/timeframe."""
+    if not ENSEMBLE_GENERATOR:
+        return {'error': 'ML signals not available'}
+
+    try:
+        with STATE_LOCK:
+            asset = CURRENT_ASSET
+            tf = CURRENT_TIMEFRAME
+            candles = CANDLES.get(asset, {}).get(tf, [])
+
+        if len(candles) < 100:
+            return {'error': f'Need at least 100 candles, have {len(candles)}'}
+
+        result = ENSEMBLE_GENERATOR.ml.train(candles, lookback=100)
+        log(f"🤖 ML training result: {result}", 1)
+        return result
+    except Exception as e:
+        log(f"❌ ML training error: {e}", 1)
+        return {'error': str(e)}
+
+@eel.expose
+def get_ml_signal():
+    """Get current ML signal for chart."""
+    if not ENSEMBLE_GENERATOR:
+        return None
+
+    try:
+        with STATE_LOCK:
+            asset = CURRENT_ASSET
+            tf = CURRENT_TIMEFRAME
+            candles = CANDLES.get(asset, {}).get(tf, [])
+
+        if not candles or len(candles) < 26:
+            return None
+
+        signal = ENSEMBLE_GENERATOR.generate_signal(candles)
+        return signal.to_dict()
+    except Exception as e:
+        log(f"⚠️ ML signal error: {e}", 1)
+        return None
 
 # ======================
 # Main Entry - FIXED with Type Safety

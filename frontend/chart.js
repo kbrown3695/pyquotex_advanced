@@ -189,10 +189,9 @@ function initChartSafely() {
                 precision: assetPrecision.precision, 
                 minMove: assetPrecision.minMove 
             },
-            lastValueVisible: false, 
+            lastValueVisible: false,
             priceLineVisible: false,
-            wickVisible: true,
-            borderVisible: true
+            wickVisible: true
         });
 
         console.log('✅ Chart initialized with fixed crosshair');

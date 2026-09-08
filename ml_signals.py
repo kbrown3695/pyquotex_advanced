@@ -94,7 +94,7 @@ class FeatureEngineer:
         down = -seed[seed < 0].sum() / period
 
         rs_list = [None] * period
-        for i in range(period, len(prices)):
+        for i in range(period, len(deltas)):
             delta = deltas[i]
             if delta > 0:
                 up = (up * (period - 1) + delta) / period

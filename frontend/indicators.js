@@ -234,6 +234,45 @@ class IndicatorBase {
         }
         return false;
     }
+
+    /**
+     * Emit a structured trading signal (data, not just pixels).
+     *
+     * Records {side, confidence, reason} in the SignalBus log panel and —
+     * unless marker:false — also draws a persistent chart marker so the
+     * log entry and the chart arrow stay in sync.
+     *
+     * Convention: call from update() on CLOSED candles; time defaults to the
+     * last candle's time, and repeats for the same candle/side are deduped.
+     */
+    emitSignal({ side, confidence = 0.5, reason = '', time = null, marker = true } = {}) {
+        if (!window.SignalBus) return;
+
+        const candles = window.AppState?.currentCandles || [];
+        const lastCandle = candles[candles.length - 1];
+        const sigTime = Number(time) || (lastCandle ? lastCandle.time : Math.floor(Date.now() / 1000));
+
+        if (marker) {
+            const isBuy = String(side).toUpperCase() === 'BUY';
+            this._addPersistentSignal(
+                sigTime,
+                isBuy ? 'buy' : 'sell',
+                isBuy ? 'belowBar' : 'aboveBar',
+                isBuy ? '#00C510' : '#ff0000',
+                isBuy ? 'arrowUp' : 'arrowDown',
+                isBuy ? 'B' : 'S'
+            );
+            this.setMarkers(this._getConfirmedMarkers());
+        }
+
+        window.SignalBus.publish({
+            side,
+            confidence,
+            reason,
+            time: sigTime,
+            indicator: this.constructor.name || 'Indicator'
+        });
+    }
 }
 
 // =============================================================================

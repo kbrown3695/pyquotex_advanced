@@ -198,15 +198,18 @@ function initMonaco() {
         try {
             monaco.languages.typescript.javascriptDefaults.addExtraLib(`
 declare class IndicatorBase {
-    id: string; type: string; paneId: string | null; 
+    id: string; type: string; paneId: string | null;
     _buffer: number[]; _initialized: boolean; visible: boolean; settings: any;
-    init(cm: any): void; update(candles: Array<any>): void; updateLast(candle: any): void; 
-    recalculate?(candles: Array<any>): void; destroy(): void; toggleVisibility(): void; 
+    init(cm: any): void; update(candles: Array<any>): void; updateLast(candle: any): void;
+    recalculate?(candles: Array<any>): void; destroy(): void; toggleVisibility(): void;
     createOverlayLine(options: any): any; createOverlayArea(options: any): any;
-    createPaneLine(paneId: string, paneName: string, options: any): any; 
+    createPaneLine(paneId: string, paneName: string, options: any): any;
     createPaneHistogram(paneId: string, paneName: string, options: any): any;
-    setMarkers(markers: Array<any>): void; hasCustomUpdateLast(): boolean; 
+    setMarkers(markers: Array<any>): void; hasCustomUpdateLast(): boolean;
     _clearOwnMarkers(): void; _generateMarkerId(type: string, time: number): string;
+    _addPersistentSignal(time: number, type: string, position: string, color: string, shape: string, text: string): any;
+    _getConfirmedMarkers(): Array<any>;
+    emitSignal(sig: { side: 'BUY'|'SELL'; confidence?: number; reason?: string; time?: number; marker?: boolean }): void;
 }
 declare const Indicators: Record<string, any>;
 declare const CM: { mainChart: any; mainSeries: any; createPane(id:string,name:string):any; releasePane(id:string):void; markMarkersDirty():void; updateAllMarkers():void; _scheduleResize():void; };

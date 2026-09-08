@@ -1,0 +1,22 @@
+{
+  "type": "RandomForest",
+  "feature_names": [
+    "atr_14",
+    "body",
+    "ema_12",
+    "ema_26",
+    "lower_wick",
+    "macd_hist",
+    "macd_line",
+    "macd_signal",
+    "range",
+    "rsi_14",
+    "sma_10",
+    "sma_20",
+    "sma_50",
+    "upper_wick"
+  ],
+  "n_estimators": 50,
+  "trained_at": "2026-09-09T01:25:35.277040",
+  "accuracy": 0.2
+}

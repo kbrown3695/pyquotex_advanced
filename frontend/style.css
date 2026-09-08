@@ -285,3 +285,52 @@ html, body {
     .tf-grid { grid-template-columns: repeat(2, 1fr); }
     #settings-panel { width: 90%; right: 5%; top: 50px; }
 }
+
+/* 🔹 Signal Log */
+#signalsBtn { position: relative; }
+.sig-badge {
+    position: absolute; top: -6px; right: -6px;
+    min-width: 16px; height: 16px; padding: 0 4px;
+    display: flex; align-items: center; justify-content: center;
+    background: #d4af37; color: #0a0f1c;
+    border-radius: 8px; font-family: 'Fira Code', monospace;
+    font-size: 9px; font-weight: 600;
+    box-shadow: 0 0 8px rgba(212, 175, 55, 0.5);
+    pointer-events: none;
+}
+.sig-actions { display: flex; align-items: center; gap: 8px; }
+.sig-actions .sp-btn { padding: 4px 12px; font-size: 10px; }
+.sig-list-head, .sig-row {
+    display: grid;
+    grid-template-columns: 70px 1fr 64px 58px 1.2fr;
+    gap: 8px; align-items: center;
+}
+.sig-list-head {
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+    font-family: 'Cinzel', serif; font-size: 9px; font-weight: 600;
+    color: #60a5fa; letter-spacing: 1px; text-transform: uppercase;
+}
+.sig-row {
+    padding: 8px 16px; margin-bottom: 6px;
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    border-radius: 4px; transition: all 0.3s;
+}
+.sig-row:hover { border-color: rgba(59, 130, 246, 0.3); }
+.sig-time { font-family: 'Fira Code', monospace; font-size: 10px; color: #64748b; }
+.sig-meta { font-size: 11px; color: #93c5fd; font-family: 'Cormorant Garamond', serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig-side {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 2px 6px; border-radius: 3px;
+    font-family: 'Fira Code', monospace; font-size: 9px; font-weight: 600;
+    letter-spacing: 0.5px;
+}
+.sig-side.buy { background: rgba(0, 197, 16, 0.15); color: #00C510; border: 1px solid rgba(0, 197, 16, 0.4); }
+.sig-side.sell { background: rgba(255, 0, 0, 0.12); color: #ff4d4d; border: 1px solid rgba(255, 77, 77, 0.4); }
+.sig-conf { display: flex; flex-direction: column; gap: 3px; align-items: stretch; }
+.sig-conf-bar { display: block; height: 3px; border-radius: 2px; background: #1e293b; transition: width 0.3s; }
+.sig-conf span:last-child { font-family: 'Fira Code', monospace; font-size: 9px; color: #94a3b8; text-align: center; }
+.sig-reason { font-size: 11px; color: #94a3b8; font-family: 'Cormorant Garamond', serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig-empty { padding: 32px 16px; text-align: center; color: #475569; font-size: 12px; font-family: 'Cormorant Garamond', serif; font-style: italic; }
+

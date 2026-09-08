@@ -1,0 +1,14 @@
+{
+  "name": "qxchart-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lint tooling for the QuotexChart frontend (no build step — plain browser scripts).",
+  "scripts": {
+    "lint": "eslint frontend/"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
+  }
+}

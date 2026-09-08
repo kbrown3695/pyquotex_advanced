@@ -42,6 +42,16 @@ pip install -r requirements.txt
 python engine.py
 ```
 
+### 🧹 Frontend Linting (optional)
+
+```bash
+npm install
+npm run lint
+```
+
+Runs ESLint over `frontend/` — catches undefined variables, duplicate keys,
+and accidental globals in the classic-script frontend (no build step required).
+
 ---
 
 # 🧭 Trading Dashboard Preview
