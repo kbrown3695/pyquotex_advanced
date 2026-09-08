@@ -23,6 +23,19 @@ import certifi
 from pathlib import Path
 from queue import Queue, Full
 from typing import Optional, Dict, List, Tuple
+from dotenv import load_dotenv
+
+# ✅ Load .env file
+load_dotenv()
+
+# ✅ Auto-login credentials from .env
+QUOTEX_EMAIL = os.getenv("QUOTEX_EMAIL")
+QUOTEX_PASSWORD = os.getenv("QUOTEX_PASSWORD")
+
+if QUOTEX_EMAIL and QUOTEX_PASSWORD:
+    print(f"✅ .env loaded: {QUOTEX_EMAIL}")
+else:
+    print("⚠️ No .env credentials found")
 
 # ✅ SSL Setup
 os.environ['SSL_CERT_FILE'] = certifi.where()
@@ -66,8 +79,12 @@ if ASYNC_LOOP is None:
 # ======================
 # UI Update Queue
 # ======================
-UI_QUEUE = Queue(maxsize=50)
+UI_QUEUE = Queue(maxsize=100)  # ✅ Increased from 50 to 100
+QUEUE_OVERFLOW_COUNT = 0
+QUEUE_LAST_OVERFLOW_LOG = 0
+
 def ui_loop():
+    global QUEUE_OVERFLOW_COUNT, QUEUE_LAST_OVERFLOW_LOG
     while True:
         try:
             payload = UI_QUEUE.get()
@@ -75,9 +92,9 @@ def ui_loop():
                 break
             eel.updateChart(payload)()
             UI_QUEUE.task_done()
+            QUEUE_OVERFLOW_COUNT = 0  # Reset on successful send
         except Exception as e:
-            if CONSOLE_LEVEL >= 2:
-                log(f"[UI Error] {e}", 2)
+            log(f"⚠️ [UI Error] {e}", 1)
             time.sleep(0.1)
 threading.Thread(target=ui_loop, daemon=True, name="UIUpdater").start()
 
@@ -97,6 +114,8 @@ TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
 PING_INTERVAL         = 60   # ثانية — كان 180
 RESUB_INTERVAL        = 60   # ✅ جديد: إعادة اشتراك دورية
 HARD_PING_INTERVAL    = 60   # ✅ جديد: ping بـ get_balance
+EMPTY_TICK_RESUB_THRESHOLD = 20  # ✅ Increased from 15, more conservative
+MAX_CONSECUTIVE_EMPTY = 50   # ✅ Max before giving up on asset switch
 
 ASSET_DISPLAY_MAP: Dict[str, str] = {}
 forex_assets = {
@@ -170,10 +189,13 @@ TIMEFRAMES = {
 CLIENT: Optional[Quotex] = None
 CURRENT_ASSET = "AUD/CAD (OTC)"
 CURRENT_TIMEFRAME = "1m"
+# Guards CURRENT_ASSET / CURRENT_TIMEFRAME against cross-thread races:
+# they are written from Eel endpoint threads and read by the async loop.
+STATE_LOCK = threading.Lock()
 CANDLES: Dict[str, Dict[str, List[dict]]] = {}
 CURRENT_CANDLE: Dict[str, Dict[str, dict]] = {}
-SERVER_TIME_OFFSET = 0.0          # ✅ EMA-smoothed — لا يُعاد حسابه خامًا كل تيك
-LAST_UI_SEND      = 0.0           # ✅ Rate-limit على send_to_ui
+SERVER_TIME_OFFSET = 0.0
+LAST_UI_SEND = 0.0
 CANDLE_COLORS = {
     "upColor": "#00C510", "downColor": "#ff0000",
     "borderUpColor": "#00C510", "borderDownColor": "#ff0000",
@@ -183,6 +205,7 @@ ASSETS_LOADED = False
 LOGIN_SUCCESS = False
 CHART_OPENED = False
 ACTIVE_TASKS: Dict[str, asyncio.Task] = {}
+BACKGROUND_TASKS: Dict[str, asyncio.Task] = {}
 BACKGROUND_LOADER_TASK = None
 
 # ======================
@@ -208,21 +231,46 @@ def update_subscription_time():
     global LAST_SUBSCRIPTION_TIME
     LAST_SUBSCRIPTION_TIME = time.time()
 
+def start_background_task(name: str, coro) -> asyncio.Task:
+    """Spawn a named background task, replacing any previous instance.
+
+    Prevents duplicate heartbeat/ping loops from accumulating across
+    reconnects and repeated logins.
+    """
+    old = BACKGROUND_TASKS.get(name)
+    if old and not old.done():
+        old.cancel()
+    task = asyncio.create_task(coro, name=name)
+    BACKGROUND_TASKS[name] = task
+    return task
+
+async def stop_background_tasks():
+    """Cancel all named background tasks and wait for them to settle."""
+    tasks = list(BACKGROUND_TASKS.values())
+    BACKGROUND_TASKS.clear()
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
 def can_reconnect() -> bool:
-    global LAST_RECONNECT_TIME
-    now = time.time()
-    if now - LAST_RECONNECT_TIME < RECONNECT_COOLDOWN:
-        return False
-    LAST_RECONNECT_TIME = now
-    return True
+    """True if enough time has passed since the last reconnect attempt.
+
+    Note: does NOT stamp LAST_RECONNECT_TIME — the caller stamps it only
+    when an attempt actually begins, so a blocked/aborted call never burns
+    the cooldown.
+    """
+    return (time.time() - LAST_RECONNECT_TIME) >= RECONNECT_COOLDOWN
 
 async def full_reconnect():
-    global CLIENT, IS_RECONNECTING, LOGIN_SUCCESS, ASSETS_LOADED
+    global CLIENT, IS_RECONNECTING, LOGIN_SUCCESS, ASSETS_LOADED, LAST_RECONNECT_TIME
     if not SAVED_EMAIL or not SAVED_PASSWORD:
         return False
     if IS_RECONNECTING or not can_reconnect():
         return False
 
+    LAST_RECONNECT_TIME = time.time()
     IS_RECONNECTING = True
     log("🔄 Full re-login initiated...", 1)
 
@@ -230,6 +278,7 @@ async def full_reconnect():
         if not task.done():
             task.cancel()
     ACTIVE_TASKS.clear()
+    await stop_background_tasks()
 
     try:
         if CLIENT and CLIENT.api:
@@ -246,17 +295,25 @@ async def full_reconnect():
             log(f"❌ Re-login failed: {reason}", 1)
             return False
 
-        await CLIENT.change_account("PRACTICE")
-        await CLIENT.get_all_assets()
+        try:
+            await CLIENT.change_account("PRACTICE")
+        except Exception as e:
+            log(f"⚠️ Failed to switch account on reconnect: {e}", 1)
+
+        try:
+            await CLIENT.get_all_assets()
+        except Exception as e:
+            log(f"⚠️ Failed to load assets on reconnect: {e}", 1)
+
         ASSETS_LOADED = True
         LOGIN_SUCCESS = True
         update_tick_time()
         update_subscription_time()
 
-        asyncio.create_task(realtime_heartbeat())
-        asyncio.create_task(market_activity_ping())
-        asyncio.create_task(hard_ping_loop())           # ✅ جديد
-        asyncio.create_task(forced_resubscription())    # ✅ جديد
+        start_background_task("heartbeat", realtime_heartbeat())
+        start_background_task("market_ping", market_activity_ping())
+        start_background_task("hard_ping", hard_ping_loop())
+        start_background_task("forced_resub", forced_resubscription())
         if CHART_OPENED:
             await start_streaming(CURRENT_ASSET)
 
@@ -272,10 +329,6 @@ async def full_reconnect():
 # ✅ تحسين #1: Hard Ping بـ get_balance
 # ======================
 async def hard_ping_loop():
-    """
-    يرسل get_balance كل HARD_PING_INTERVAL ثانية.
-    يُبقي الاتصال حيًا من جهة الـ server ويكشف الأعطال مبكرًا.
-    """
     while True:
         await asyncio.sleep(HARD_PING_INTERVAL)
         try:
@@ -288,17 +341,16 @@ async def hard_ping_loop():
         except asyncio.TimeoutError:
             log("⚠️ Hard ping timeout — triggering reconnect", 1)
             asyncio.create_task(full_reconnect())
+        except (ConnectionError, OSError) as e:
+            log(f"⚠️ Hard ping connection error: {e}", 1)
+            asyncio.create_task(full_reconnect())
         except Exception as e:
-            log(f"⚠️ Hard ping error: {e}", 2)
+            log(f"⚠️ Hard ping unexpected error: {type(e).__name__}: {e}", 2)
 
 # ======================
 # ✅ تحسين #4: Forced Resubscription دورية
 # ======================
 async def forced_resubscription():
-    """
-    يعيد الاشتراك في start_realtime_price كل RESUB_INTERVAL ثانية
-    حتى لو لم يكن هناك خطأ — يمنع تجميد الـ stream.
-    """
     while True:
         await asyncio.sleep(RESUB_INTERVAL)
         try:
@@ -313,8 +365,10 @@ async def forced_resubscription():
             log(f"🔁 Forced resub: {CURRENT_ASSET} [{CURRENT_TIMEFRAME}]", 2)
         except asyncio.CancelledError:
             break
+        except (ConnectionError, OSError, TimeoutError) as e:
+            log(f"⚠️ Resub error: {type(e).__name__}: {e}", 1)
         except Exception as e:
-            log(f"⚠️ Resub error: {e}", 2)
+            log(f"⚠️ Resub error: {type(e).__name__}: {e}", 2)
 
 # ======================
 # Background Tasks
@@ -329,13 +383,10 @@ async def realtime_heartbeat():
                     asyncio.create_task(full_reconnect())
         except asyncio.CancelledError:
             break
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"⚠️ Heartbeat error: {type(e).__name__}", 2)
 
 async def market_activity_ping():
-    """
-    ✅ تحسين #5: مخفض من 180 → PING_INTERVAL (60) ثانية
-    """
     while True:
         await asyncio.sleep(PING_INTERVAL)
         try:
@@ -347,10 +398,11 @@ async def market_activity_ping():
             log(f"📡 Market ping: {len(candles) if candles else 0} candles", 2)
         except asyncio.CancelledError:
             break
-        except Exception:
-            pass
+        except (ConnectionError, OSError) as e:
+            log(f"⚠️ Market ping connection error: {type(e).__name__}", 2)
+        except Exception as e:
+            log(f"⚠️ Market ping error: {type(e).__name__}", 2)
 
-# ✅ تحسين #5: مخفض من 90 → TICK_IDLE_THRESHOLD (30) ثانية
 def price_sleep_watcher():
     while True:
         time.sleep(15)
@@ -374,12 +426,31 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
             if not all(k in c for k in ("time", "open", "high", "low", "close")):
                 continue
             ts = int(float(c["time"]))
+            o = float(c["open"])
+            h = float(c["high"])
+            l = float(c["low"])
+            cl = float(c["close"])
+
+            # ✅ Validation checks to prevent corrupted candles
+            if not (o > 0 and h > 0 and l > 0 and cl > 0):
+                log(f"⚠️ Candle has non-positive price: {c}", 2)
+                continue
+            if h < l:
+                log(f"⚠️ Candle inverted: high ({h}) < low ({l})", 2)
+                continue
+            if o > h or o < l or cl > h or cl < l:
+                log(f"⚠️ Candle OHLC out of bounds: O={o} H={h} L={l} C={cl}", 2)
+                continue
+            if ts <= 0:
+                continue
+
             aligned = (ts // period) * period
             formatted.append({
-                "time": aligned, "open": float(c["open"]), "high": float(c["high"]),
-                "low": float(c["low"]), "close": float(c["close"])
+                "time": aligned, "open": o, "high": h,
+                "low": l, "close": cl
             })
-        except Exception:
+        except (ValueError, TypeError) as e:
+            log(f"⚠️ Candle parse error: {e}", 2)
             continue
     formatted.sort(key=lambda x: x["time"])
     return formatted
@@ -402,50 +473,86 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int):
         if price < curr["low"]:  curr["low"] = price
         curr["close"] = price
 
-def send_to_ui(asset: str, timeframe: str, force: bool = False) -> bool:
+def prune_candle_cache(keep_asset: str):
+    """Drop cached candles for all assets except `keep_asset`.
+
+    Bounds memory to a single asset (200 candles x 14 timeframes) instead
+    of growing with every asset ever viewed.
     """
-    ✅ Rate-limit: لا يرسل أكثر من مرة كل 500ms إلا لو force=True
-    ✅ يُضيف candle_start_time للـ payload حتى يحسب JS العدّاد محلياً
-       بدون الاعتماد على server_time من Python في كل تيك.
+    for asset in list(CANDLES.keys()):
+        if asset != keep_asset:
+            CANDLES.pop(asset, None)
+    for asset in list(CURRENT_CANDLE.keys()):
+        if asset != keep_asset:
+            CURRENT_CANDLE.pop(asset, None)
+
+def is_cache_fresh(asset: str, tf: str) -> bool:
+    """True if the cached last candle covers the currently forming period."""
+    candles = CANDLES.get(asset, {}).get(tf)
+    if not candles:
+        return False
+    period = TIMEFRAMES.get(tf, 60)
+    server_now = time.time() + SERVER_TIME_OFFSET
+    expected_start = (int(server_now) // period) * period
+    return candles[-1]["time"] >= expected_start
+
+def send_to_ui(asset: str, timeframe: str, force: bool = False, full: bool = False) -> bool:
+    """Push candles to the browser.
+
+    full=True  → complete snapshot; bypasses the rate limit (used on load
+                 and asset/timeframe switches, so a snapshot is never dropped).
+    full=False → incremental: only the currently forming candle; the JS side
+                 merges it via candleSeries.update(). Cuts payload size from
+                 ~200 candles to 1 per tick.
     """
-    global LAST_UI_SEND
+    global LAST_UI_SEND, QUEUE_OVERFLOW_COUNT, QUEUE_LAST_OVERFLOW_LOG
     now = time.time()
-    if not force and (now - LAST_UI_SEND) < 0.5:
+    if not (full or force) and (now - LAST_UI_SEND) < 0.5:
         return False
     LAST_UI_SEND = now
 
-    all_c = CANDLES.get(asset, {}).get(timeframe, []).copy()
-    curr  = CURRENT_CANDLE.get(asset, {}).get(timeframe)
-    if curr:
-        if all_c and all_c[-1]["time"] == curr["time"]:
-            all_c[-1] = curr
-        else:
-            all_c.append(curr)
-    all_c.sort(key=lambda x: x["time"])
-
     duration = TIMEFRAMES.get(timeframe, 60)
     server_now = now + SERVER_TIME_OFFSET
-    # ✅ وقت بداية الشمعة الحالية — ثابت حتى تنتهي الشمعة
     candle_start = (int(server_now) // duration) * duration
 
+    if full:
+        all_c = CANDLES.get(asset, {}).get(timeframe, []).copy()
+        curr = CURRENT_CANDLE.get(asset, {}).get(timeframe)
+        if curr:
+            if all_c and all_c[-1]["time"] == curr["time"]:
+                all_c[-1] = curr
+            else:
+                all_c.append(curr)
+        all_c.sort(key=lambda x: x["time"])
+        candles, mode = all_c, "full"
+    else:
+        curr = CURRENT_CANDLE.get(asset, {}).get(timeframe)
+        if not curr:
+            return False
+        candles, mode = [curr], "update"
+
     payload = {
-        "candles"          : all_c,
+        "mode"             : mode,
+        "candles"          : candles,
         "asset"            : asset,
         "timeframe"        : timeframe,
         "timeframe_seconds": duration,
         "server_time"      : server_now,
-        "candle_start_time": candle_start,   # ✅ JS يحسب: duration - (Date.now()/1000 - candle_start)
+        "candle_start_time": candle_start,
     }
     try:
         UI_QUEUE.put_nowait(payload)
+        QUEUE_OVERFLOW_COUNT = 0
         return True
     except Full:
+        QUEUE_OVERFLOW_COUNT += 1
+        if now - QUEUE_LAST_OVERFLOW_LOG > 5:  # Log at most once per 5 seconds
+            log(f"🚨 UI Queue overflow (dropped {QUEUE_OVERFLOW_COUNT} updates)", 1)
+            QUEUE_LAST_OVERFLOW_LOG = now
         return False
 
 # ======================
 # 🔥 Realtime Loop
-# ✅ تحسين #2: timeout=5 على get_realtime_price
-# ✅ تحسين #3: كشف zombie بعد 30 ثانية
 # ======================
 async def realtime_price_loop(asset_display: str):
     internal = DISPLAY_TO_INTERNAL.get(asset_display)
@@ -453,11 +560,11 @@ async def realtime_price_loop(asset_display: str):
         return
     log(f"🔄 Loop started: {asset_display}", 1)
     errs = 0
-    consecutive_empty = 0  # ✅ عداد النتائج الفارغة المتتالية
+    consecutive_empty = 0
+    last_resub_time = 0
 
     try:
         while True:
-            # ✅ تحسين #3: كشف zombie connection
             idle_secs = time.time() - LAST_TICK_TIME
             if idle_secs > TICK_IDLE_THRESHOLD and is_websocket_connected():
                 log(f"🧟 Zombie detected — connected but idle {idle_secs:.0f}s, resubscribing...", 1)
@@ -466,6 +573,7 @@ async def realtime_price_loop(asset_display: str):
                     await CLIENT.start_realtime_price(internal, period)
                     update_subscription_time()
                     log("✅ Zombie cured via resubscription", 1)
+                    last_resub_time = time.time()
                 except Exception as ze:
                     log(f"⚠️ Zombie resub failed: {ze}", 2)
                     asyncio.create_task(full_reconnect())
@@ -474,9 +582,9 @@ async def realtime_price_loop(asset_display: str):
             if errs >= 10 and not is_websocket_connected():
                 await CLIENT.start_realtime_price(internal, TIMEFRAMES.get(CURRENT_TIMEFRAME, 60))
                 update_subscription_time()
+                last_resub_time = time.time()
                 errs = 0
 
-            # ✅ تحسين #2: Timeout على get_realtime_price
             try:
                 data = await asyncio.wait_for(
                     CLIENT.get_realtime_price(internal),
@@ -486,12 +594,13 @@ async def realtime_price_loop(asset_display: str):
                 log(f"⏱️ get_realtime_price timeout ({asset_display})", 2)
                 errs += 1
                 consecutive_empty += 1
-                if consecutive_empty >= 6:  # 6 × 5s timeout = 30s بدون بيانات
-                    log("🔄 Too many timeouts — forcing resub", 1)
+                if consecutive_empty >= 8 and (time.time() - last_resub_time) > 10:
+                    log(f"⚠️ {consecutive_empty} timeouts — trying resub (with backoff)", 1)
                     try:
                         period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
                         await CLIENT.start_realtime_price(internal, period)
                         update_subscription_time()
+                        last_resub_time = time.time()
                         consecutive_empty = 0
                     except Exception:
                         asyncio.create_task(full_reconnect())
@@ -507,16 +616,17 @@ async def realtime_price_loop(asset_display: str):
                 ts = int(float(latest.get("time", time.time())))
                 if price > 0 and ts > 0:
                     global SERVER_TIME_OFFSET
-                    # ✅ EMA smoothing α=0.1 — يمنع flutter عند تذبذب ts من السيرفر
                     raw_offset = ts - time.time()
                     if SERVER_TIME_OFFSET == 0.0:
-                        SERVER_TIME_OFFSET = raw_offset          # أول قيمة: خذها مباشرة
+                        SERVER_TIME_OFFSET = raw_offset
                     else:
                         SERVER_TIME_OFFSET = SERVER_TIME_OFFSET * 0.9 + raw_offset * 0.1
-                    for frame in TIMEFRAMES:
+                    with STATE_LOCK:
+                        active = asset_display == CURRENT_ASSET
+                        frame = CURRENT_TIMEFRAME
+                    if active:
                         update_candle(asset_display, frame, price, ts)
-                    if asset_display == CURRENT_ASSET:
-                        send_to_ui(asset_display, CURRENT_TIMEFRAME)
+                        send_to_ui(asset_display, frame)
                     errs = 0
                     consecutive_empty = 0
                 else:
@@ -524,26 +634,30 @@ async def realtime_price_loop(asset_display: str):
             else:
                 consecutive_empty += 1
 
-            # ✅ تحسين #3: كثير من النتائج الفارغة = zombie
-            if consecutive_empty >= 15:
-                log(f"🧟 {consecutive_empty} empty ticks — forcing resub", 1)
-                try:
-                    period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
-                    await CLIENT.start_realtime_price(internal, period)
-                    update_subscription_time()
-                    consecutive_empty = 0
-                except Exception:
+            if consecutive_empty >= EMPTY_TICK_RESUB_THRESHOLD:
+                if (time.time() - last_resub_time) > 15:  # ✅ Exponential backoff: wait 15s before resub
+                    log(f"⚠️ {consecutive_empty} empty ticks — forcing resub (backoff applied)", 1)
+                    try:
+                        period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
+                        await CLIENT.start_realtime_price(internal, period)
+                        update_subscription_time()
+                        last_resub_time = time.time()
+                        consecutive_empty = 0
+                    except Exception:
+                        asyncio.create_task(full_reconnect())
+                        break
+                elif consecutive_empty >= MAX_CONSECUTIVE_EMPTY:
+                    log(f"❌ {consecutive_empty} empty ticks (max reached) — full reconnect", 1)
                     asyncio.create_task(full_reconnect())
                     break
 
-            # ✅ 0.05 بدل 0.2 — يقلل jitter في scheduling ويحسن دقة العدّاد
             await asyncio.sleep(0.05)
 
     except asyncio.CancelledError:
         log(f"⏹️ Loop stopped: {asset_display}", 2)
     except Exception as e:
         errs += 1
-        log(f"⚠️ Loop error ({asset_display}): {e}", 2)
+        log(f"⚠️ Loop error ({asset_display}): {e}", 1)
         if errs >= 15:
             asyncio.create_task(full_reconnect())
     finally:
@@ -571,7 +685,7 @@ async def chart_opened_loader(asset: str):
     CHART_OPENED = True
     log("📊 Chart opened", 1)
     await load_timeframe_data(asset, "1m", 60)
-    send_to_ui(asset, "1m")
+    send_to_ui(asset, "1m", force=True, full=True)
     internal = DISPLAY_TO_INTERNAL.get(asset)
     if internal:
         for _ in range(3):
@@ -630,14 +744,25 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
     success, reason = await connect_with_retry()
     if not success:
         return False, reason
-    await CLIENT.change_account("PRACTICE")
-    await CLIENT.get_all_assets()
+
+    try:
+        await CLIENT.change_account("PRACTICE")
+    except Exception as e:
+        log(f"❌ Failed to switch to PRACTICE account: {e}", 1)
+        return False, f"Account switch failed: {e}"
+
+    try:
+        await CLIENT.get_all_assets()
+    except Exception as e:
+        log(f"⚠️ Failed to load assets (non-fatal): {e}", 1)
+        # Continue anyway; assets may load later
+
     ASSETS_LOADED = LOGIN_SUCCESS = True
     update_subscription_time()
-    asyncio.create_task(realtime_heartbeat())
-    asyncio.create_task(market_activity_ping())
-    asyncio.create_task(hard_ping_loop())        # ✅ جديد
-    asyncio.create_task(forced_resubscription()) # ✅ جديد
+    start_background_task("heartbeat", realtime_heartbeat())
+    start_background_task("market_ping", market_activity_ping())
+    start_background_task("hard_ping", hard_ping_loop())
+    start_background_task("forced_resub", forced_resubscription())
     log("✅ Login successful", 1)
     return True, ""
 
@@ -659,10 +784,13 @@ async def start_streaming(asset: str):
     if BACKGROUND_LOADER_TASK and not BACKGROUND_LOADER_TASK.done():
         BACKGROUND_LOADER_TASK.cancel()
 
-    CURRENT_ASSET = asset
-    period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
-    await load_timeframe_data(asset, CURRENT_TIMEFRAME, period)
-    send_to_ui(asset, CURRENT_TIMEFRAME)
+    with STATE_LOCK:
+        CURRENT_ASSET = asset
+        tf = CURRENT_TIMEFRAME
+    prune_candle_cache(asset)
+    period = TIMEFRAMES.get(tf, 60)
+    await load_timeframe_data(asset, tf, period)
+    send_to_ui(asset, tf, force=True, full=True)
     await asyncio.sleep(0.5)
 
     internal = DISPLAY_TO_INTERNAL.get(asset)
@@ -679,12 +807,39 @@ async def start_streaming(asset: str):
     BACKGROUND_LOADER_TASK = asyncio.create_task(smart_background_loader(asset))
 
 # ======================
+# Input Validation
+# ======================
+def validate_email(email: str) -> Tuple[bool, str]:
+    if not email or not isinstance(email, str):
+        return False, "Email is required"
+    email = email.strip()
+    if len(email) < 5 or "@" not in email or "." not in email:
+        return False, "Invalid email format"
+    return True, ""
+
+def validate_password(password: str) -> Tuple[bool, str]:
+    if not password or not isinstance(password, str):
+        return False, "Password is required"
+    if len(password) < 3:
+        return False, "Password must be at least 3 characters"
+    return True, ""
+
+# ======================
 # Eel Endpoints
 # ======================
 @eel.expose
 def login(email, password):
     def run():
         try:
+            ok, err = validate_email(email)
+            if not ok:
+                eel.onLoginError(err)()
+                return
+            ok, err = validate_password(password)
+            if not ok:
+                eel.onLoginError(err)()
+                return
+
             fut = asyncio.run_coroutine_threadsafe(connect_to_quotex(email, password), ASYNC_LOOP)
             ok, err = fut.result(timeout=60)
             if ok:
@@ -708,31 +863,41 @@ def on_chart_opened():
 
 @eel.expose
 def change_asset(asset):
+    if not asset or not isinstance(asset, str):
+        log(f"❌ Invalid asset: {asset}", 1)
+        return
+    if asset not in ASSET_DISPLAY_MAP.values():
+        log(f"❌ Unknown asset: {asset}", 1)
+        return
     def run():
         try:
             asyncio.run_coroutine_threadsafe(start_streaming(asset), ASYNC_LOOP).result(timeout=15)
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"⚠️ Asset change failed: {e}", 1)
     threading.Thread(target=run, daemon=True).start()
 
 @eel.expose
 def change_timeframe(tf):
     global CURRENT_TIMEFRAME
-    if tf not in TIMEFRAMES:
+    if not tf or tf not in TIMEFRAMES:
+        log(f"❌ Invalid timeframe: {tf}", 1)
         return
-    CURRENT_TIMEFRAME = tf
-    if tf in CANDLES.get(CURRENT_ASSET, {}):
-        send_to_ui(CURRENT_ASSET, tf)
+    with STATE_LOCK:
+        CURRENT_TIMEFRAME = tf
+        asset = CURRENT_ASSET
+        fresh = is_cache_fresh(asset, tf)
+    if fresh:
+        send_to_ui(asset, tf, force=True, full=True)
         return
 
     def run():
         try:
             asyncio.run_coroutine_threadsafe(
-                load_timeframe_data(CURRENT_ASSET, tf, TIMEFRAMES[tf]), ASYNC_LOOP
+                load_timeframe_data(asset, tf, TIMEFRAMES[tf]), ASYNC_LOOP
             ).result(timeout=15)
-            send_to_ui(CURRENT_ASSET, tf)
-        except Exception:
-            pass
+            send_to_ui(asset, tf, force=True, full=True)
+        except Exception as e:
+            log(f"⚠️ Timeframe change failed: {e}", 1)
     threading.Thread(target=run, daemon=True).start()
 
 @eel.expose
@@ -762,29 +927,70 @@ def get_connection_status():
             "current_asset": CURRENT_ASSET,
             "current_timeframe": CURRENT_TIMEFRAME,
             "is_reconnecting": IS_RECONNECTING,
-            "last_tick_age": round(time.time() - LAST_TICK_TIME, 1),   # ✅ جديد
-            "last_sub_age": round(time.time() - LAST_SUBSCRIPTION_TIME, 1)  # ✅ جديد
+            "last_tick_age": round(time.time() - LAST_TICK_TIME, 1),
+            "last_sub_age": round(time.time() - LAST_SUBSCRIPTION_TIME, 1)
         }
     return {"connected": False}
 
 # ======================
-# Main Entry
+# Main Entry - FIXED with Type Safety
 # ======================
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("🚀 Quotex Pro Trader — EEL COMPATIBLE v3.3 (COUNTDOWN FIX)")
-    print("✅ EMA Offset | Rate-limited UI | Stable candle_start | Fast sleep | Anti-Sleep")
+    print(
+        "✅ EMA Offset | Rate-limited UI | Stable candle_start | Fast sleep | Anti-Sleep"
+    )
 
     os.makedirs("frontend", exist_ok=True)
     if not os.path.exists("frontend/login/login.html"):
         print("❌ Missing frontend/login/login.html")
         sys.exit(1)
 
-    try:
-        eel.init('frontend')
-        eel.start('login/login.html', size=(1280, 720), port=0, mode='chrome')
-    except KeyboardInterrupt:
-        print("\n👋 Exiting...")
-        sys.exit(0)
-    except Exception as e:
-        print(f"❌ Startup failed: {e}")
-        sys.exit(1)
+    # ✅ Auto-Login from .env with type safety
+    if QUOTEX_EMAIL and QUOTEX_PASSWORD:
+        # Type-safe: ensure we have strings
+        email = str(QUOTEX_EMAIL)
+        password = str(QUOTEX_PASSWORD)
+
+        print(f"🔐 Auto-login with: {email}")
+
+        def auto_login():
+            try:
+                fut = asyncio.run_coroutine_threadsafe(
+                    connect_to_quotex(email, password), ASYNC_LOOP
+                )
+                ok, err = fut.result(timeout=60)
+                if ok:
+                    print("✅ Auto-login successful!")
+                    eel.onLoginSuccess()()
+                else:
+                    print(f"❌ Auto-login failed: {err}")
+                    eel.start(
+                        "login/login.html", size=(1280, 720), port=0, mode="chrome"
+                    )
+            except Exception as e:
+                print(f"❌ Auto-login error: {e}")
+                eel.start("login/login.html", size=(1280, 720), port=0, mode="chrome")
+
+        threading.Thread(target=auto_login, daemon=True).start()
+
+        try:
+            eel.init("frontend")
+            eel.start("login/login.html", size=(1280, 720), port=0, mode="chrome")
+        except KeyboardInterrupt:
+            print("\n👋 Exiting...")
+            sys.exit(0)
+        except Exception as e:
+            print(f"❌ Startup failed: {e}")
+            sys.exit(1)
+    else:
+        print("⚠️ No .env credentials found. Please login manually.")
+        try:
+            eel.init("frontend")
+            eel.start("login/login.html", size=(1280, 720), port=0, mode="chrome")
+        except KeyboardInterrupt:
+            print("\n👋 Exiting...")
+            sys.exit(0)
+        except Exception as e:
+            print(f"❌ Startup failed: {e}")
+            sys.exit(1)
