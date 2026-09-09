@@ -941,9 +941,12 @@ def get_connection_status():
         }
     return {"connected": False}
 
-@eel.expose
-def train_ml_signals():
-    """Train ML model on recent candles for current asset/timeframe."""
+# ======================
+# 🤖 Async ML Signal Methods
+# ======================
+
+async def _train_ml_signals_async():
+    """Async ML model training (non-blocking)."""
     if not ENSEMBLE_GENERATOR:
         return {'error': 'ML signals not available'}
 
@@ -956,16 +959,16 @@ def train_ml_signals():
         if len(candles) < 100:
             return {'error': f'Need at least 100 candles, have {len(candles)}'}
 
+        # Run training in background (CPU-bound)
         result = ENSEMBLE_GENERATOR.ml.train(candles, lookback=100)
-        log(f"🤖 ML training result: {result}", 1)
+        log(f"🤖 ML training done: {result.get('accuracy', 'N/A')} accuracy", 1)
         return result
     except Exception as e:
         log(f"❌ ML training error: {e}", 1)
         return {'error': str(e)}
 
-@eel.expose
-def get_ml_signal():
-    """Get current ML signal for chart."""
+async def _get_ml_signal_async():
+    """Async ML signal generation (non-blocking)."""
     if not ENSEMBLE_GENERATOR:
         return None
 
@@ -983,6 +986,38 @@ def get_ml_signal():
     except Exception as e:
         log(f"⚠️ ML signal error: {e}", 1)
         return None
+
+@eel.expose
+def train_ml_signals():
+    """Async wrapper: Train ML model on recent candles (all assets)."""
+    def run():
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                _train_ml_signals_async(), ASYNC_LOOP
+            )
+            result = fut.result(timeout=30)
+            eel.updateMLStatus(result)()
+        except Exception as e:
+            log(f"❌ Async training error: {e}", 1)
+            eel.updateMLStatus({'error': str(e)})()
+
+    threading.Thread(target=run, daemon=True).start()
+
+@eel.expose
+def get_ml_signal():
+    """Async wrapper: Get current ML signal (non-blocking poll)."""
+    def run():
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                _get_ml_signal_async(), ASYNC_LOOP
+            )
+            signal = fut.result(timeout=5)
+            if signal:
+                eel.onMLSignal(signal)()
+        except Exception as e:
+            log(f"⚠️ Async signal fetch error: {e}", 2)
+
+    threading.Thread(target=run, daemon=True).start()
 
 # ======================
 # Main Entry - FIXED with Type Safety

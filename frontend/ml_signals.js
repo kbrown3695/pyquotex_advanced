@@ -49,81 +49,92 @@ const MLSignals = {
     },
 
     /**
-     * Fetch and display latest ML signal.
+     * Fetch and display latest ML signal (async, non-blocking).
      */
-    async updateSignal() {
+    updateSignal() {
         if (!this.enabled || !window.eel) return;
 
+        // Fire async request — result comes via onMLSignal callback
         try {
-            const signal = await new Promise((resolve, reject) => {
-                eel.get_ml_signal()(
-                    result => resolve(result),
-                    error => reject(error)
-                );
-            });
-
-            if (!signal) return;
-
-            // Publish to SignalBus for persistence and display
-            const published = SignalBus.publish({
-                side: signal.side,
-                confidence: signal.confidence,
-                reason: signal.reason || `ML (${signal.method})`,
-                indicator: 'ML-' + (signal.method || 'ensemble'),
-                time: signal.timestamp ? Math.floor(signal.timestamp) : undefined
-            });
-
-            if (published) {
-                console.log(`📊 ML Signal: ${published.side} @ ${(published.confidence * 100).toFixed(0)}%`);
-
-                // Update UI if signals panel is visible
-                if (document.getElementById('signalsList')) {
-                    renderSignalsList();
-                }
-            }
+            eel.get_ml_signal()();
         } catch (e) {
-            if (e !== 'eel') { // Ignore eel not available
-                console.warn('⚠️ ML signal fetch error:', e);
+            if (e !== 'eel') {
+                console.warn('⚠️ Failed to request ML signal:', e);
             }
         }
     },
 
     /**
-     * Train ML model with current chart data.
-     * Updates UI with training progress.
+     * Callback: Process ML signal from backend (async result).
      */
-    async train() {
+    onSignalReceived(signal) {
+        if (!signal || typeof signal !== 'object') return;
+
+        // Publish to SignalBus for persistence and display
+        const published = SignalBus.publish({
+            side: signal.side,
+            confidence: signal.confidence,
+            reason: signal.reason || `ML (${signal.method})`,
+            indicator: 'ML-' + (signal.method || 'ensemble'),
+            time: signal.timestamp ? Math.floor(signal.timestamp) : undefined
+        });
+
+        if (published) {
+            const conf = (published.confidence * 100).toFixed(0);
+            console.log(`📊 ML Signal: ${published.side} @ ${conf}%`);
+
+            // Update UI if signals panel is visible
+            if (document.getElementById('signalsList')) {
+                renderSignalsList();
+            }
+        }
+    },
+
+    /**
+     * Train ML model with current chart data (async, non-blocking).
+     * Result comes via updateMLStatus callback.
+     */
+    train() {
         if (!window.eel || this.training) return;
 
         this.training = true;
+        const trainBtn = document.getElementById('trainMLBtn');
 
+        // Show loading state
+        if (trainBtn) {
+            trainBtn.disabled = true;
+            trainBtn.textContent = '⏳ Training...';
+        }
+
+        console.log('🚀 Async ML training started (non-blocking)');
+
+        // Fire async training — result comes via updateMLStatus callback
         try {
-            // Show loading state
-            const trainBtn = document.getElementById('trainMLBtn');
-            if (trainBtn) {
-                trainBtn.disabled = true;
-                trainBtn.textContent = 'Training...';
-            }
-
-            const result = await new Promise((resolve, reject) => {
-                eel.train_ml_signals()(
-                    result => resolve(result),
-                    error => reject(error)
-                );
-            });
-
-            this.handleTrainingResult(result);
+            eel.train_ml_signals()();
         } catch (e) {
-            console.error('❌ ML training error:', e);
-            this.showTrainingNotification('Training failed: ' + String(e), 'error');
-        } finally {
+            console.error('❌ Failed to start training:', e);
+            this.showTrainingNotification('Failed to start training: ' + String(e), 'error');
             this.training = false;
-            const trainBtn = document.getElementById('trainMLBtn');
             if (trainBtn) {
                 trainBtn.disabled = false;
-                trainBtn.textContent = 'Train ML Model';
+                trainBtn.textContent = '🤖 Train ML Model';
             }
         }
+    },
+
+    /**
+     * Callback: Process training result from backend (async completion).
+     */
+    onTrainingComplete(result) {
+        this.training = false;
+        const trainBtn = document.getElementById('trainMLBtn');
+
+        if (trainBtn) {
+            trainBtn.disabled = false;
+            trainBtn.textContent = '🤖 Train ML Model';
+        }
+
+        this.handleTrainingResult(result);
     },
 
     /**
@@ -188,6 +199,15 @@ const MLSignals = {
     }
 };
 
+// ✅ Backend callbacks for async responses
+window.onMLSignal = (signal) => {
+    MLSignals.onSignalReceived(signal);
+};
+
+window.updateMLStatus = (result) => {
+    MLSignals.onTrainingComplete(result);
+};
+
 // Auto-init on page load if eel is available
 document.addEventListener('DOMContentLoaded', () => {
     if (window.eel) {
@@ -201,4 +221,4 @@ document.addEventListener('DOMContentLoaded', () => {
 // Export for use in other modules
 window.MLSignals = MLSignals;
 
-console.log('✅ ml_signals.js v1.0 loaded — ML signal integration ready');
+console.log('✅ ml_signals.js v2.0 loaded — Async ML signal integration ready');

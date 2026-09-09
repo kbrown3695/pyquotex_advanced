@@ -53,3 +53,6 @@ docs/
 temp/
 *.txt
 *.pdf
+##Artificial Intelligence
+.claude/
+.continue/
