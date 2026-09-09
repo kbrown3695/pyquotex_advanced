@@ -987,37 +987,66 @@ async def _get_ml_signal_async():
         log(f"⚠️ ML signal error: {e}", 1)
         return None
 
+# Global cache for ML results
+ML_TRAINING_RESULT = None
+LAST_ML_SIGNAL = None
+
 @eel.expose
 def train_ml_signals():
     """Async wrapper: Train ML model on recent candles (all assets)."""
+    global ML_TRAINING_RESULT
+
     def run():
+        global ML_TRAINING_RESULT
         try:
             fut = asyncio.run_coroutine_threadsafe(
                 _train_ml_signals_async(), ASYNC_LOOP
             )
-            result = fut.result(timeout=30)
-            eel.updateMLStatus(result)()
+            ML_TRAINING_RESULT = fut.result(timeout=30)
+            log(f"🤖 ML training cached: {ML_TRAINING_RESULT.get('accuracy', 'N/A')}", 1)
         except Exception as e:
             log(f"❌ Async training error: {e}", 1)
-            eel.updateMLStatus({'error': str(e)})()
+            ML_TRAINING_RESULT = {'error': str(e)}
 
     threading.Thread(target=run, daemon=True).start()
 
 @eel.expose
+def get_ml_training_result():
+    """Get cached training result (non-blocking)."""
+    global ML_TRAINING_RESULT
+    if ML_TRAINING_RESULT:
+        result = ML_TRAINING_RESULT
+        ML_TRAINING_RESULT = None  # Clear after retrieval
+        return result
+    return None
+
+@eel.expose
 def get_ml_signal():
     """Async wrapper: Get current ML signal (non-blocking poll)."""
+    global LAST_ML_SIGNAL
+
     def run():
+        global LAST_ML_SIGNAL
         try:
             fut = asyncio.run_coroutine_threadsafe(
                 _get_ml_signal_async(), ASYNC_LOOP
             )
-            signal = fut.result(timeout=5)
-            if signal:
-                eel.onMLSignal(signal)()
+            LAST_ML_SIGNAL = fut.result(timeout=5)
         except Exception as e:
             log(f"⚠️ Async signal fetch error: {e}", 2)
+            LAST_ML_SIGNAL = None
 
     threading.Thread(target=run, daemon=True).start()
+
+@eel.expose
+def get_last_ml_signal():
+    """Get cached ML signal (non-blocking)."""
+    global LAST_ML_SIGNAL
+    if LAST_ML_SIGNAL:
+        signal = LAST_ML_SIGNAL
+        LAST_ML_SIGNAL = None  # Clear after retrieval
+        return signal
+    return None
 
 # ======================
 # Main Entry - FIXED with Type Safety

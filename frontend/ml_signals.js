@@ -54,9 +54,18 @@ const MLSignals = {
     updateSignal() {
         if (!this.enabled || !window.eel) return;
 
-        // Fire async request — result comes via onMLSignal callback
+        // Fire async request in background
         try {
             eel.get_ml_signal()();
+
+            // Poll for cached result (non-blocking)
+            setTimeout(() => {
+                eel.get_last_ml_signal()(signal => {
+                    if (signal) {
+                        this.onSignalReceived(signal);
+                    }
+                });
+            }, 50);  // Small delay to let backend finish
         } catch (e) {
             if (e !== 'eel') {
                 console.warn('⚠️ Failed to request ML signal:', e);
@@ -65,7 +74,7 @@ const MLSignals = {
     },
 
     /**
-     * Callback: Process ML signal from backend (async result).
+     * Process ML signal from backend (async result).
      */
     onSignalReceived(signal) {
         if (!signal || typeof signal !== 'object') return;
@@ -92,7 +101,7 @@ const MLSignals = {
 
     /**
      * Train ML model with current chart data (async, non-blocking).
-     * Result comes via updateMLStatus callback.
+     * Polls for result in background.
      */
     train() {
         if (!window.eel || this.training) return;
@@ -108,9 +117,12 @@ const MLSignals = {
 
         console.log('🚀 Async ML training started (non-blocking)');
 
-        // Fire async training — result comes via updateMLStatus callback
+        // Fire async training
         try {
             eel.train_ml_signals()();
+
+            // Poll for cached result
+            this.pollTrainingResult(trainBtn, 0);
         } catch (e) {
             console.error('❌ Failed to start training:', e);
             this.showTrainingNotification('Failed to start training: ' + String(e), 'error');
@@ -123,18 +135,38 @@ const MLSignals = {
     },
 
     /**
-     * Callback: Process training result from backend (async completion).
+     * Poll for training result (up to 35 seconds).
      */
-    onTrainingComplete(result) {
-        this.training = false;
-        const trainBtn = document.getElementById('trainMLBtn');
+    pollTrainingResult(trainBtn, attempts = 0) {
+        const MAX_ATTEMPTS = 700;  // 35 seconds at 50ms interval
 
-        if (trainBtn) {
-            trainBtn.disabled = false;
-            trainBtn.textContent = '🤖 Train ML Model';
+        if (attempts >= MAX_ATTEMPTS) {
+            console.error('❌ Training timeout after 35 seconds');
+            this.showTrainingNotification('Training timeout', 'error');
+            this.training = false;
+            if (trainBtn) {
+                trainBtn.disabled = false;
+                trainBtn.textContent = '🤖 Train ML Model';
+            }
+            return;
         }
 
-        this.handleTrainingResult(result);
+        eel.get_ml_training_result()(result => {
+            if (result) {
+                // Result is ready
+                this.training = false;
+                if (trainBtn) {
+                    trainBtn.disabled = false;
+                    trainBtn.textContent = '🤖 Train ML Model';
+                }
+                this.handleTrainingResult(result);
+            } else {
+                // Keep polling
+                setTimeout(() => {
+                    this.pollTrainingResult(trainBtn, attempts + 1);
+                }, 50);
+            }
+        });
     },
 
     /**
@@ -197,15 +229,6 @@ const MLSignals = {
             console.log('❌ ML signals disabled');
         }
     }
-};
-
-// ✅ Backend callbacks for async responses
-window.onMLSignal = (signal) => {
-    MLSignals.onSignalReceived(signal);
-};
-
-window.updateMLStatus = (result) => {
-    MLSignals.onTrainingComplete(result);
 };
 
 // Auto-init on page load if eel is available
