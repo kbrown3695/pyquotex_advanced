@@ -47,6 +47,10 @@ def rsi(prices: List[float], period: int = 14) -> List[float]:
         rsi_val = 100 - (100 / (1 + rs))
         rs_list.append(rsi_val)
 
+    # Pad to match input length
+    while len(rs_list) < len(prices):
+        rs_list.append(None)
+
     return rs_list
 
 
