@@ -54,18 +54,7 @@ class VolatilityModel(BaseTradingModel):
             X: Feature matrix (n_samples, n_features)
             y: Volatility targets (n_samples,) - should be ATR or std dev of returns
         """
-        import sys
-        import os
-
-        # Suppress LightGBM stderr output during training
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        old_stderr = os.dup(2)
-        os.dup2(devnull, 2)
-        try:
-            self.model.fit(X, y)
-        finally:
-            os.dup2(old_stderr, 2)
-            os.close(devnull)
+        self.model.fit(X, y, verbose=-1)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict volatility values."""

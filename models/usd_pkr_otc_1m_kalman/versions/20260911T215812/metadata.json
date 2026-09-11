@@ -1,0 +1,28 @@
+{
+  "algorithm": "kalman_state_space",
+  "model_class": "KalmanStateSpaceModel",
+  "model_module": "ml.models.kalman_state_space",
+  "asset": "USD/PKR (OTC)",
+  "timeframe": "1m",
+  "version": "20260911T215812",
+  "trained_at": "2026-09-11T21:58:12.890192",
+  "feature_names": [
+    "returns_1",
+    "returns_3",
+    "rsi_14",
+    "macd_histogram",
+    "atr_14",
+    "bb_percent_b",
+    "sma_20_slope",
+    "sma_50_ratio",
+    "sma_50",
+    "sma_100",
+    "ema_12_ratio",
+    "ema_26_ratio",
+    "high_low_range"
+  ],
+  "metrics": {
+    "status": "trained",
+    "samples": 199
+  }
+}
