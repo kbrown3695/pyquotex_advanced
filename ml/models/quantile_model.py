@@ -57,7 +57,17 @@ class QuantileModel(BaseTradingModel):
             X: Feature matrix (n_samples, n_features)
             y: Target values (n_samples,) - typically next-period returns
         """
-        self.model.fit(X, y)
+        import os
+
+        # Suppress LightGBM stderr output during training
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        old_stderr = os.dup(2)
+        os.dup2(devnull, 2)
+        try:
+            self.model.fit(X, y)
+        finally:
+            os.dup2(old_stderr, 2)
+            os.close(devnull)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict quantile values."""
