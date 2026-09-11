@@ -135,13 +135,13 @@ const MLSignals = {
     },
 
     /**
-     * Poll for training result (up to 35 seconds).
+     * Poll for training result (up to 200 seconds for Phase B gradient boosting).
      */
     pollTrainingResult(trainBtn, attempts = 0) {
-        const MAX_ATTEMPTS = 700;  // 35 seconds at 50ms interval
+        const MAX_ATTEMPTS = 2000;  // 200 seconds at 100ms interval
 
         if (attempts >= MAX_ATTEMPTS) {
-            console.error('❌ Training timeout after 35 seconds');
+            console.error('❌ Training timeout after 200 seconds');
             this.showTrainingNotification('Training timeout', 'error');
             this.training = false;
             if (trainBtn) {
@@ -164,7 +164,7 @@ const MLSignals = {
                 // Keep polling
                 setTimeout(() => {
                     this.pollTrainingResult(trainBtn, attempts + 1);
-                }, 50);
+                }, 100);
             }
         });
     },

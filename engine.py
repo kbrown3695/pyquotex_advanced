@@ -1026,7 +1026,7 @@ def train_ml_signals():
             fut = asyncio.run_coroutine_threadsafe(
                 _train_ml_signals_async(), ASYNC_LOOP
             )
-            ML_TRAINING_RESULT = fut.result(timeout=30)
+            ML_TRAINING_RESULT = fut.result(timeout=120)
             log(f"🤖 ML training cached: {ML_TRAINING_RESULT.get('accuracy', 'N/A')}", 1)
         except Exception as e:
             log(f"❌ Async training error: {e}", 1)

@@ -11,6 +11,12 @@ from ml.models.ensemble import EnsembleModel
 from ml.models.kalman_state_space import KalmanStateSpaceModel
 from ml.models.expected_return_model import ExpectedReturnModel
 from ml.models.probability_model import ProbabilityModel
+from ml.models.gradient_boosting_model import (
+    GradientBoostingDirectionalModel,
+    GradientBoostingReturnModel,
+)
+from ml.models.volatility_model import VolatilityModel
+from ml.models.quantile_model import QuantileModel
 
 
 class MLSignalService:
@@ -45,7 +51,7 @@ class MLSignalService:
 		"""Train all active models on the given candles.
 
 		Phase A (implemented): EnsembleModel, KalmanStateSpaceModel, ExpectedReturnModel, ProbabilityModel
-		Phase B+: will add GradientBoostingDirectionalModel, VolatilityModel, QuantileModel, RegimeClassifier
+		Phase B (implemented): GradientBoostingDirectionalModel, GradientBoostingReturnModel, VolatilityModel, QuantileModel
 
 		Args:
 			asset: Asset name (e.g. "AUD/CAD (OTC)")
@@ -146,6 +152,101 @@ class MLSignalService:
 		except Exception as e:
 			results["probability_error"] = str(e)
 
+		# Phase B: Train GradientBoostingDirectionalModel (xgboost)
+		try:
+			gbd = GradientBoostingDirectionalModel(algorithm="xgboost")
+			gbd.set_feature_names(feature_names)
+			gbd.train(X, y)
+
+			self.registry.save_and_activate(
+				gbd, asset, timeframe,
+				metrics={"status": "trained", "samples": len(X)},
+				algorithm="gradient_boosting_directional",
+				model_key="gradient_boosting_directional",
+			)
+			models_trained.append("gradient_boosting_directional")
+		except Exception as e:
+			results["gradient_boosting_directional_error"] = str(e)
+
+		# Phase B: Train GradientBoostingReturnModel (xgboost)
+		try:
+			gbr = GradientBoostingReturnModel(algorithm="xgboost")
+			gbr.set_feature_names(feature_names)
+			y_return = np.diff(np.array([c["close"] for c in candles]))[:-1]
+			if len(y_return) == len(X):
+				gbr.train(X, y_return)
+				self.registry.save_and_activate(
+					gbr, asset, timeframe,
+					metrics={"status": "trained", "samples": len(X)},
+					algorithm="gradient_boosting_return",
+					model_key="gradient_boosting_return",
+				)
+				models_trained.append("gradient_boosting_return")
+		except Exception as e:
+			results["gradient_boosting_return_error"] = str(e)
+
+		# Phase B: Train VolatilityModel (lightgbm)
+		try:
+			vol_model = VolatilityModel()
+			vol_model.set_feature_names(feature_names)
+			# Use ATR from the last feature (atr_14) as volatility target
+			y_volatility = np.full(len(X), 0.01)  # Placeholder
+			try:
+				# Try to use actual ATR values from feature pipeline
+				from ml.features.indicators import calculate_atr
+				closes = np.array([c["close"] for c in candles])
+				highs = np.array([c["high"] for c in candles])
+				lows = np.array([c["low"] for c in candles])
+				y_volatility = calculate_atr(highs, lows, closes, period=14)[:-1]
+				if len(y_volatility) != len(X):
+					y_volatility = np.full(len(X), 0.01)
+			except Exception:
+				pass
+			vol_model.train(X, y_volatility)
+			self.registry.save_and_activate(
+				vol_model, asset, timeframe,
+				metrics={"status": "trained", "samples": len(X)},
+				algorithm="volatility",
+				model_key="volatility",
+			)
+			models_trained.append("volatility")
+		except Exception as e:
+			results["volatility_error"] = str(e)
+
+		# Phase B: Train QuantileModel (lightgbm) - upper quantile
+		try:
+			y_return = np.diff(np.array([c["close"] for c in candles]))[:-1]
+			if len(y_return) == len(X):
+				quantile_model = QuantileModel(quantile=0.75)
+				quantile_model.set_feature_names(feature_names)
+				quantile_model.train(X, y_return)
+				self.registry.save_and_activate(
+					quantile_model, asset, timeframe,
+					metrics={"status": "trained", "samples": len(X)},
+					algorithm="quantile_upper",
+					model_key="quantile_upper",
+				)
+				models_trained.append("quantile_upper")
+		except Exception as e:
+			results["quantile_upper_error"] = str(e)
+
+		# Phase B: Train QuantileModel (lightgbm) - lower quantile
+		try:
+			y_return = np.diff(np.array([c["close"] for c in candles]))[:-1]
+			if len(y_return) == len(X):
+				quantile_model = QuantileModel(quantile=0.25)
+				quantile_model.set_feature_names(feature_names)
+				quantile_model.train(X, y_return)
+				self.registry.save_and_activate(
+					quantile_model, asset, timeframe,
+					metrics={"status": "trained", "samples": len(X)},
+					algorithm="quantile_lower",
+					model_key="quantile_lower",
+				)
+				models_trained.append("quantile_lower")
+		except Exception as e:
+			results["quantile_lower_error"] = str(e)
+
 		# Aggregate feature importances from models that have them
 		feature_importances = {}
 		for model_name in models_trained:
@@ -208,15 +309,20 @@ class MLSignalService:
 
 		features_array = features_array.reshape(1, -1)
 
-		# Get predictions from all Phase A models
+		# Get predictions from all Phase A + Phase B models
 		ensemble_proba = None
 		kalman_proba = None
 		expected_return_proba = None
 		probability_proba = None
 		kalman_regime = None
 		kalman_volatility = None
+		gb_directional_proba = None
+		gb_return_proba = None
+		volatility_pred = None
+		quantile_upper_pred = None
+		quantile_lower_pred = None
 
-		# Ensemble prediction
+		# Ensemble prediction (Phase A)
 		try:
 			ensemble_model = self.registry.get_active_model(
 				asset, timeframe, model_key="ensemble"
@@ -226,7 +332,7 @@ class MLSignalService:
 		except Exception:
 			pass
 
-		# Kalman prediction + regime + volatility
+		# Kalman prediction + regime + volatility (Phase A)
 		try:
 			kalman_model = self.registry.get_active_model(
 				asset, timeframe, model_key="kalman"
@@ -238,7 +344,7 @@ class MLSignalService:
 		except Exception:
 			pass
 
-		# ExpectedReturn prediction
+		# ExpectedReturn prediction (Phase A)
 		try:
 			er_model = self.registry.get_active_model(
 				asset, timeframe, model_key="expected_return"
@@ -248,13 +354,62 @@ class MLSignalService:
 		except Exception:
 			pass
 
-		# Probability prediction
+		# Probability prediction (Phase A)
 		try:
 			prob_model = self.registry.get_active_model(
 				asset, timeframe, model_key="probability"
 			)
 			if prob_model:
 				probability_proba = prob_model.predict_proba(features_array)
+		except Exception:
+			pass
+
+		# GradientBoosting Directional prediction (Phase B)
+		try:
+			gb_dir_model = self.registry.get_active_model(
+				asset, timeframe, model_key="gradient_boosting_directional"
+			)
+			if gb_dir_model:
+				gb_directional_proba = gb_dir_model.predict_proba(features_array)
+		except Exception:
+			pass
+
+		# GradientBoosting Return prediction (Phase B)
+		try:
+			gb_ret_model = self.registry.get_active_model(
+				asset, timeframe, model_key="gradient_boosting_return"
+			)
+			if gb_ret_model:
+				gb_return_proba = gb_ret_model.predict_proba(features_array)
+		except Exception:
+			pass
+
+		# Volatility prediction (Phase B)
+		try:
+			vol_model = self.registry.get_active_model(
+				asset, timeframe, model_key="volatility"
+			)
+			if vol_model:
+				volatility_pred = vol_model.predict(features_array)
+		except Exception:
+			pass
+
+		# Quantile predictions (Phase B)
+		try:
+			quantile_up = self.registry.get_active_model(
+				asset, timeframe, model_key="quantile_upper"
+			)
+			if quantile_up:
+				quantile_upper_pred = quantile_up.predict(features_array)
+		except Exception:
+			pass
+
+		try:
+			quantile_lo = self.registry.get_active_model(
+				asset, timeframe, model_key="quantile_lower"
+			)
+			if quantile_lo:
+				quantile_lower_pred = quantile_lo.predict(features_array)
 		except Exception:
 			pass
 
@@ -266,6 +421,11 @@ class MLSignalService:
 			probability_proba=probability_proba,
 			kalman_regime=kalman_regime,
 			kalman_volatility=kalman_volatility,
+			gb_directional_proba=gb_directional_proba,
+			gb_return_proba=gb_return_proba,
+			volatility_pred=volatility_pred,
+			quantile_upper_pred=quantile_upper_pred,
+			quantile_lower_pred=quantile_lower_pred,
 		)
 
 		return signal

@@ -150,11 +150,16 @@ class MultiModelAggregator:
 		probability_proba: Optional[np.ndarray] = None,
 		kalman_regime: Optional[Tuple] = None,
 		kalman_volatility: Optional[float] = None,
+		gb_directional_proba: Optional[np.ndarray] = None,
+		gb_return_proba: Optional[np.ndarray] = None,
+		volatility_pred: Optional[np.ndarray] = None,
+		quantile_upper_pred: Optional[np.ndarray] = None,
+		quantile_lower_pred: Optional[np.ndarray] = None,
 	) -> SignalResult:
 		"""Aggregate all model outputs into a single SignalResult.
 
 		Phase A: uses ensemble + advanced (Kalman, ExpectedReturn, Probability)
-		Later phases: adds volatility/regime dampening
+		Phase B: adds gradient boosting models + volatility/quantile dampening
 
 		Args:
 			ensemble_proba: from EnsembleModel/DirectionalClassifier
@@ -163,6 +168,11 @@ class MultiModelAggregator:
 			probability_proba: from ProbabilityModel.predict_proba()
 			kalman_regime: tuple (MarketRegime, confidence) from KalmanStateSpaceModel
 			kalman_volatility: float from KalmanStateSpaceModel.predict_volatility()
+			gb_directional_proba: from GradientBoostingDirectionalModel.predict_proba()
+			gb_return_proba: from GradientBoostingReturnModel.predict_proba()
+			volatility_pred: from VolatilityModel.predict()
+			quantile_upper_pred: from QuantileModel(0.75).predict()
+			quantile_lower_pred: from QuantileModel(0.25).predict()
 
 		Returns:
 			SignalResult with side, confidence, reason, method, components
@@ -170,14 +180,28 @@ class MultiModelAggregator:
 		# Layer 1: sklearn ensemble
 		p_up_ensemble, components_ensemble = self.blend_ensemble(ensemble_proba)
 
-		# Layer 2: advanced models
+		# Layer 2: advanced models (Phase A + Phase B)
 		p_up_advanced, components_advanced = self.blend_advanced(
 			kalman_proba=kalman_proba,
 			expected_return_proba=expected_return_proba,
 			probability_proba=probability_proba,
 		)
 
-		# Layer 3: combine and dampen
+		# Layer 2b: gradient boosting models (Phase B)
+		p_up_gb = 0.5
+		components_gb = {}
+		if gb_directional_proba is not None and len(gb_directional_proba) > 0:
+			p_up_gb = float(gb_directional_proba[-1, 1])
+			components_gb["gradient_boosting_directional"] = {"p_up": p_up_gb}
+		if gb_return_proba is not None and len(gb_return_proba) > 0:
+			p_up_gb_ret = float(gb_return_proba[-1, 1])
+			components_gb["gradient_boosting_return"] = {"p_up": p_up_gb_ret}
+
+		# Blend gradient boosting with advanced models
+		if components_gb:
+			p_up_advanced = 0.5 * p_up_advanced + 0.5 * p_up_gb
+
+		# Layer 3: combine ensemble + advanced
 		p_up_combined = (
 			self.ensemble_weight * p_up_ensemble +
 			self.advanced_weight * p_up_advanced
@@ -198,12 +222,16 @@ class MultiModelAggregator:
 			elif regime_str in ["ranging", "chaotic"]:
 				confidence *= (1.0 - 0.3 * regime_confidence)
 
-		# Apply volatility dampening if available (Phase B+)
-		if kalman_volatility and self.use_volatility_dampening:
+		# Apply volatility dampening from Phase A or Phase B model
+		vol_estimate = kalman_volatility
+		if volatility_pred is not None and len(volatility_pred) > 0:
+			vol_estimate = float(volatility_pred[-1])
+
+		if vol_estimate and self.use_volatility_dampening:
 			# High volatility → dampen confidence
-			vol_threshold = 0.1
-			if kalman_volatility > vol_threshold:
-				vol_factor = min(1.0, vol_threshold / kalman_volatility)
+			vol_threshold = 0.01
+			if vol_estimate > vol_threshold:
+				vol_factor = min(1.0, vol_threshold / vol_estimate)
 				confidence *= vol_factor
 
 		# Clip confidence to [0, 1]
@@ -216,11 +244,16 @@ class MultiModelAggregator:
 		components = {
 			**components_ensemble,
 			**components_advanced,
+			**components_gb,
 		}
 		if regime_str:
 			components["regime"] = regime_str
-		if kalman_volatility is not None:
-			components["volatility"] = round(kalman_volatility, 6)
+		if vol_estimate is not None:
+			components["volatility"] = round(vol_estimate, 6)
+		if quantile_upper_pred is not None and len(quantile_upper_pred) > 0:
+			components["quantile_upper"] = round(float(quantile_upper_pred[-1]), 6)
+		if quantile_lower_pred is not None and len(quantile_lower_pred) > 0:
+			components["quantile_lower"] = round(float(quantile_lower_pred[-1]), 6)
 
 		# Build reason string
 		reason_parts = []
