@@ -14,7 +14,7 @@ class FeatureDefinition:
     min_history: int
 
 
-# Master registry of all available features (11 total, drop volume_zscore from dollar's 12)
+# Master registry of all available features (13 total: 11 base + SMA50 + SMA100)
 FEATURE_REGISTRY = (
     FeatureDefinition(
         name="returns_1",
@@ -63,6 +63,18 @@ FEATURE_REGISTRY = (
         version="1.0",
         description="SMA20 / SMA50 ratio",
         min_history=51,
+    ),
+    FeatureDefinition(
+        name="sma_50",
+        version="1.0",
+        description="50-period Simple Moving Average",
+        min_history=50,
+    ),
+    FeatureDefinition(
+        name="sma_100",
+        version="1.0",
+        description="100-period Simple Moving Average",
+        min_history=100,
     ),
     FeatureDefinition(
         name="ema_12_ratio",

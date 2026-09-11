@@ -134,6 +134,7 @@ def build_snapshots(candles: List[dict]) -> List[Dict[str, float]]:
     # Run all indicator calculations once
     sma20_vals = sma(closes, 20)
     sma50_vals = sma(closes, 50)
+    sma100_vals = sma(closes, 100)
     ema12_vals = ema(closes, 12)
     ema26_vals = ema(closes, 26)
     rsi14_vals = rsi(closes, 14)
@@ -150,6 +151,7 @@ def build_snapshots(candles: List[dict]) -> List[Dict[str, float]]:
             'low': lows[i],
             'sma_20': sma20_vals[i] or 0.0,
             'sma_50': sma50_vals[i] or 0.0,
+            'sma_100': sma100_vals[i] or 0.0,
             'ema_12': ema12_vals[i] or 0.0,
             'ema_26': ema26_vals[i] or 0.0,
             'rsi_14': rsi14_vals[i] or 0.0,

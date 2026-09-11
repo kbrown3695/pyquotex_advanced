@@ -1754,12 +1754,154 @@ Indicators.AreaFill = class extends IndicatorBase {
 // =============================================================================
 // 📋 TEMPLATES REGISTRY
 // =============================================================================
+const TPL_SMA50 = `
+// 50-period Simple Moving Average
+Indicators.SMA50 = class extends IndicatorBase {
+    constructor() {
+        super({ type: 'overlay' });
+        this.settings = {
+            period: 50,
+            color: '#ff6b6b',
+            lineWidth: 2
+        };
+        this._buffer = [];
+        this._series = null;
+    }
+
+    init(cm) {
+        super.init(cm);
+        this._series = this.createOverlayLine({
+            color: this.settings.color,
+            lineWidth: this.settings.lineWidth,
+            lastValueVisible: true,
+            priceLineVisible: false,
+            title: 'SMA(50)'
+        });
+    }
+
+    update(candles) {
+        try {
+            if (!candles || candles.length < this.settings.period) return;
+            this._buffer = [];
+            const result = [];
+            for (let i = 0; i < candles.length; i++) {
+                const candle = candles[i];
+                this._buffer.push(candle.close);
+                if (this._buffer.length > this.settings.period) {
+                    this._buffer.shift();
+                }
+                if (this._buffer.length === this.settings.period) {
+                    const sum = this._buffer.reduce((a, b) => a + b, 0);
+                    const value = sum / this._buffer.length;
+                    result.push({ time: candle.time, value: value });
+                    this._lastCalculatedValue = value;
+                    this._lastClosedCandle = candle;
+                }
+            }
+            if (result.length > 0 && this._series) {
+                this._series.setData(result);
+            }
+            this._initialized = true;
+        } catch (e) { console.warn('SMA50 update error:', e); }
+    }
+
+    updateLast(candle) {
+        if (this._initialized && candle && this._series && this._lastCalculatedValue !== null) {
+            this._series.update({ time: candle.time, value: this._lastCalculatedValue });
+        }
+    }
+
+    destroy() {
+        this._buffer = [];
+        this._series = null;
+        super.destroy();
+    }
+};
+`;
+
+const TPL_SMA100 = `
+// 100-period Simple Moving Average
+Indicators.SMA100 = class extends IndicatorBase {
+    constructor() {
+        super({ type: 'overlay' });
+        this.settings = {
+            period: 100,
+            color: '#4ecdc4',
+            lineWidth: 2
+        };
+        this._buffer = [];
+        this._series = null;
+    }
+
+    init(cm) {
+        super.init(cm);
+        this._series = this.createOverlayLine({
+            color: this.settings.color,
+            lineWidth: this.settings.lineWidth,
+            lastValueVisible: true,
+            priceLineVisible: false,
+            title: 'SMA(100)'
+        });
+    }
+
+    update(candles) {
+        try {
+            if (!candles || candles.length < this.settings.period) return;
+            this._buffer = [];
+            const result = [];
+            for (let i = 0; i < candles.length; i++) {
+                const candle = candles[i];
+                this._buffer.push(candle.close);
+                if (this._buffer.length > this.settings.period) {
+                    this._buffer.shift();
+                }
+                if (this._buffer.length === this.settings.period) {
+                    const sum = this._buffer.reduce((a, b) => a + b, 0);
+                    const value = sum / this._buffer.length;
+                    result.push({ time: candle.time, value: value });
+                    this._lastCalculatedValue = value;
+                    this._lastClosedCandle = candle;
+                }
+            }
+            if (result.length > 0 && this._series) {
+                this._series.setData(result);
+            }
+            this._initialized = true;
+        } catch (e) { console.warn('SMA100 update error:', e); }
+    }
+
+    updateLast(candle) {
+        if (this._initialized && candle && this._series && this._lastCalculatedValue !== null) {
+            this._series.update({ time: candle.time, value: this._lastCalculatedValue });
+        }
+    }
+
+    destroy() {
+        this._buffer = [];
+        this._series = null;
+        super.destroy();
+    }
+};
+`;
+
 const TEMPLATES = {
     ma: {
         name: 'MovingAverage',
         type: 'ov',
         code: TPL_MA,
         description: 'Simple Moving Average (SMA) - Track general trend direction'
+    },
+    sma50: {
+        name: 'SMA50',
+        type: 'ov',
+        code: TPL_SMA50,
+        description: '50-period SMA - Medium-term trend indicator'
+    },
+    sma100: {
+        name: 'SMA100',
+        type: 'ov',
+        code: TPL_SMA100,
+        description: '100-period SMA - Long-term trend indicator'
     },
     ema: {
         name: 'EMA',
