@@ -6,11 +6,18 @@ so the rest of the stack still imports if a wheel is unavailable.
 """
 
 from typing import Any, Dict, List, Optional
+import logging
+import warnings
 
 import joblib
 import numpy as np
 
 from ml.models.base import BaseTradingModel
+
+# Suppress xgboost and lightgbm warnings
+logging.getLogger("xgboost").setLevel(logging.ERROR)
+logging.getLogger("lightgbm").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
 
 
 def _import_xgb() -> Any:

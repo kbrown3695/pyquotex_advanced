@@ -5,11 +5,15 @@ confidence scores when volatility is high.
 """
 
 from typing import Any, Dict, List, Optional
+import logging
 
 import joblib
 import numpy as np
 
 from ml.models.base import BaseTradingModel
+
+# Suppress LightGBM warnings about insufficient data
+logging.getLogger("lightgbm").setLevel(logging.ERROR)
 
 
 def _import_lgbm() -> Any:
