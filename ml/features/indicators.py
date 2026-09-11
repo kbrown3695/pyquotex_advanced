@@ -93,6 +93,10 @@ def atr(candles: List[dict], period: int = 14) -> List[float]:
         atr_val = (atr_val * (period - 1) + tr) / period
         atr_vals.append(atr_val)
 
+    # Pad to match input candles length
+    while len(atr_vals) < len(candles):
+        atr_vals.append(None)
+
     return atr_vals
 
 
