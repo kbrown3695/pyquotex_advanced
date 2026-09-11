@@ -14,57 +14,70 @@ from ml.models.gradient_boosting_model import (
     GradientBoostingDirectionalModel,
     GradientBoostingReturnModel,
 )
+from ml.models.kalman_state_space import KalmanStateSpaceModel
+from ml.models.expected_return_model import ExpectedReturnModel
+from ml.models.probability_model import ProbabilityModel
 
 
 class ModelRegistry:
     """Filesystem-based model registry.
 
-    Models are stored per asset+timeframe:
-    models/<slug>/
+    Models are stored per asset+timeframe+model_key:
+    models/<slug>__<model_key>/
       active.json                   # {"active_version": "20260909T142233"}
       versions/
         20260909T142233/
           model.joblib              # serialized ensemble/classifier
-          metadata.json             # training metadata
+          metadata.json             # training metadata (includes model_class, model_module)
     """
 
     def __init__(self, base_dir: str = "models"):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(exist_ok=True, parents=True)
         self._cache: Dict[str, BaseTradingModel] = {}
+        self._model_class_map = {
+            "DirectionalClassifier": DirectionalClassifier,
+            "EnsembleModel": EnsembleModel,
+            "GradientBoostingDirectionalModel": GradientBoostingDirectionalModel,
+            "GradientBoostingReturnModel": GradientBoostingReturnModel,
+            "KalmanStateSpaceModel": KalmanStateSpaceModel,
+            "ExpectedReturnModel": ExpectedReturnModel,
+            "ProbabilityModel": ProbabilityModel,
+        }
 
-    def _slugify(self, asset: str, timeframe: str) -> str:
-        """Convert asset+timeframe to filesystem-safe slug.
+    def _slugify(self, asset: str, timeframe: str, model_key: str = "default") -> str:
+        """Convert asset+timeframe+model_key to filesystem-safe slug.
 
-        E.g. "AUD/CAD (OTC)", "1m" -> "aud_cad_otc_1m"
+        E.g. "AUD/CAD (OTC)", "1m", "kalman" -> "aud_cad_otc_1m__kalman"
         """
-        combined = f"{asset}_{timeframe}"
+        combined = f"{asset}_{timeframe}__{model_key}"
         slug = re.sub(r'[^A-Za-z0-9]+', '_', combined).strip('_').lower()
         return slug
 
-    def _get_asset_dir(self, asset: str, timeframe: str) -> Path:
-        """Get the asset+timeframe directory path."""
-        slug = self._slugify(asset, timeframe)
+    def _get_asset_dir(self, asset: str, timeframe: str, model_key: str = "default") -> Path:
+        """Get the asset+timeframe+model_key directory path."""
+        slug = self._slugify(asset, timeframe, model_key)
         return self.base_dir / slug
 
     def get_active_model(
         self,
         asset: str,
         timeframe: str,
+        model_key: str = "default",
     ) -> Optional[BaseTradingModel]:
-        """Load the active model for asset+timeframe.
+        """Load the active model for asset+timeframe+model_key.
 
         Returns None if no trained model exists yet.
         If active.json is missing/corrupt, self-heals by picking the latest version.
         """
-        slug = self._slugify(asset, timeframe)
-        cache_key = f"{asset}_{timeframe}"
+        slug = self._slugify(asset, timeframe, model_key)
+        cache_key = f"{asset}_{timeframe}_{model_key}"
 
         # Check cache first
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        asset_dir = self._get_asset_dir(asset, timeframe)
+        asset_dir = self._get_asset_dir(asset, timeframe, model_key)
         if not asset_dir.exists():
             return None
 
@@ -101,7 +114,7 @@ class ModelRegistry:
             return None
 
         try:
-            model = self._load_model(str(model_path))
+            model = self._load_model(version_dir)
             self._cache[cache_key] = model
             return model
         except Exception as e:
@@ -115,8 +128,9 @@ class ModelRegistry:
         timeframe: str,
         metrics: Dict[str, Any],
         algorithm: str = "ensemble",
+        model_key: str = "default",
     ) -> Dict[str, Any]:
-        """Save model and set it as active for asset+timeframe.
+        """Save model and set it as active for asset+timeframe+model_key.
 
         Args:
             model: Trained model (EnsembleModel or DirectionalClassifier)
@@ -124,11 +138,12 @@ class ModelRegistry:
             timeframe: Timeframe (e.g. "1m")
             metrics: Training metrics dict
             algorithm: Algorithm name for metadata
+            model_key: Model identifier key (e.g. "kalman", "ensemble"), default "default"
 
         Returns:
             Dict with save results: {version, path, status}
         """
-        asset_dir = self._get_asset_dir(asset, timeframe)
+        asset_dir = self._get_asset_dir(asset, timeframe, model_key)
         asset_dir.mkdir(parents=True, exist_ok=True)
 
         # Create version directory with timestamp
@@ -143,9 +158,11 @@ class ModelRegistry:
         except Exception as e:
             return {"error": f"Failed to save model: {e}"}
 
-        # Save metadata
+        # Save metadata with type tags for explicit dispatch
         metadata = {
             "algorithm": algorithm,
+            "model_class": type(model).__name__,
+            "model_module": type(model).__module__,
             "asset": asset,
             "timeframe": timeframe,
             "version": timestamp,
@@ -167,7 +184,7 @@ class ModelRegistry:
         os.replace(active_tmp, active_file)
 
         # Invalidate cache for this asset
-        cache_key = f"{asset}_{timeframe}"
+        cache_key = f"{asset}_{timeframe}_{model_key}"
         if cache_key in self._cache:
             del self._cache[cache_key]
 
@@ -177,35 +194,78 @@ class ModelRegistry:
             "path": str(model_path),
             "asset": asset,
             "timeframe": timeframe,
+            "model_key": model_key,
         }
 
-    def _load_model(self, path: str) -> BaseTradingModel:
-        """Load a model from disk by dispatching to correct loader.
+    def _load_model(self, version_dir) -> BaseTradingModel:
+        """Load a model from disk by reading metadata and dispatching to correct loader.
 
-        Dispatches based on filename/path patterns.
+        Args:
+            version_dir: Path to the version directory (contains model.joblib and metadata.json)
+
+        Returns:
+            Loaded BaseTradingModel instance
         """
+        if isinstance(version_dir, str):
+            version_dir = Path(version_dir)
+
+        model_path = version_dir / "model.joblib"
+        metadata_path = version_dir / "metadata.json"
+
+        # Try reading metadata for explicit type dispatch
+        model_class_name = None
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                    model_class_name = metadata.get("model_class")
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # Use explicit type-tag dispatch if we have a class name in metadata
+        if model_class_name and model_class_name in self._model_class_map:
+            model_class = self._model_class_map[model_class_name]
+            return model_class.load(str(model_path))
+
+        # Fallback: try each class in priority order (for old metadata without type tags)
         # Try loading as ensemble first (most common)
         try:
-            return EnsembleModel.load(path)
+            return EnsembleModel.load(str(model_path))
         except Exception:
             pass
 
         # Try loading as directional classifier
         try:
-            return DirectionalClassifier.load(path)
+            return DirectionalClassifier.load(str(model_path))
         except Exception:
             pass
 
         # Try loading as gradient boosting classifier
         try:
-            return GradientBoostingDirectionalModel.load(path)
+            return GradientBoostingDirectionalModel.load(str(model_path))
         except Exception:
             pass
 
         # Try loading as gradient boosting regressor
         try:
-            return GradientBoostingReturnModel.load(path)
+            return GradientBoostingReturnModel.load(str(model_path))
         except Exception:
             pass
 
-        raise ValueError(f"Unable to load model from {path} - unknown format")
+        # Try the new Phase A models
+        try:
+            return KalmanStateSpaceModel.load(str(model_path))
+        except Exception:
+            pass
+
+        try:
+            return ExpectedReturnModel.load(str(model_path))
+        except Exception:
+            pass
+
+        try:
+            return ProbabilityModel.load(str(model_path))
+        except Exception:
+            pass
+
+        raise ValueError(f"Unable to load model from {model_path} - unknown format")

@@ -55,6 +55,12 @@ except ImportError as e:
     print(f"⚠️ ML signals not available: {e}")
     EnsembleSignalGenerator = None
 
+try:
+    from ml.serving.signal_service import MLSignalService
+except ImportError as e:
+    print(f"⚠️ ML signal service not available: {e}")
+    MLSignalService = None
+
 # ======================
 # ⚙️ CONFIG & LOGGING
 # ======================
@@ -115,8 +121,9 @@ IS_RECONNECTING = False
 RECONNECT_COOLDOWN = 30
 LAST_RECONNECT_TIME = 0
 
-# ML Signal Generator
+# ML Signal Generators
 ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
+ML_SERVICE = MLSignalService() if MLSignalService else None
 
 # ✅ تحسين #5: أوقات مخفضة
 TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
@@ -947,7 +954,8 @@ def get_connection_status():
 
 async def _train_ml_signals_async():
     """Async ML model training (non-blocking)."""
-    if not ENSEMBLE_GENERATOR:
+    # Try ML_SERVICE first (Phase A+), fall back to ENSEMBLE_GENERATOR (legacy)
+    if not ML_SERVICE and not ENSEMBLE_GENERATOR:
         return {'error': 'ML signals not available'}
 
     try:
@@ -959,8 +967,13 @@ async def _train_ml_signals_async():
         if len(candles) < 100:
             return {'error': f'Need at least 100 candles, have {len(candles)}'}
 
-        # Run training in background (CPU-bound)
-        result = ENSEMBLE_GENERATOR.ml.train(candles, lookback=100)
+        # Try new ML service first
+        if ML_SERVICE:
+            result = ML_SERVICE.train_all(asset, tf, candles, lookahead=1)
+        else:
+            # Fallback to legacy ensemble generator
+            result = ENSEMBLE_GENERATOR.ml.train(candles, lookback=100)
+
         log(f"🤖 ML training done: {result.get('accuracy', 'N/A')} accuracy", 1)
         return result
     except Exception as e:
@@ -969,7 +982,8 @@ async def _train_ml_signals_async():
 
 async def _get_ml_signal_async():
     """Async ML signal generation (non-blocking)."""
-    if not ENSEMBLE_GENERATOR:
+    # Try ML_SERVICE first (Phase A+), fall back to ENSEMBLE_GENERATOR (legacy)
+    if not ML_SERVICE and not ENSEMBLE_GENERATOR:
         return None
 
     try:
@@ -981,8 +995,18 @@ async def _get_ml_signal_async():
         if not candles or len(candles) < 26:
             return None
 
-        signal = ENSEMBLE_GENERATOR.generate_signal(candles)
-        return signal.to_dict()
+        # Try new ML service first
+        if ML_SERVICE:
+            signal = ML_SERVICE.generate_signal(asset, tf, candles)
+            if signal:
+                return signal.to_dict()
+        else:
+            # Fallback to legacy ensemble generator
+            signal = ENSEMBLE_GENERATOR.generate_signal(candles)
+            if signal:
+                return signal.to_dict()
+
+        return None
     except Exception as e:
         log(f"⚠️ ML signal error: {e}", 1)
         return None
