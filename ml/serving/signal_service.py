@@ -61,7 +61,8 @@ class MLSignalService:
 
 		# Build training matrix
 		try:
-			X, y, feature_names = self.feature_pipeline.build_training_matrix(
+			from ml.features.feature_pipeline import build_training_matrix
+			X, y, feature_names = build_training_matrix(
 				candles, lookahead=lookahead
 			)
 		except Exception as e:
@@ -191,15 +192,21 @@ class MLSignalService:
 		if len(candles) < 26:  # Minimum for FeaturePipeline
 			return None
 
-		# Extract features for the last candle
+		# Extract features for the last candle (transform_live returns tuple)
 		try:
-			features_snapshot = self.feature_pipeline.transform_live(
-				candles[-1], candles[:-1]
+			# Build snapshots from candles (includes all indicators)
+			from ml.features.feature_pipeline import build_snapshots
+			snapshots = build_snapshots(candles)
+
+			# Extract features for the last snapshot
+			features_array, metadata = self.feature_pipeline.transform_live(
+				snapshot=snapshots[-1],
+				history=snapshots[:-1] if len(snapshots) > 1 else None
 			)
 		except Exception:
 			return None
 
-		features_array = features_snapshot.reshape(1, -1)
+		features_array = features_array.reshape(1, -1)
 
 		# Get predictions from all Phase A models
 		ensemble_proba = None
