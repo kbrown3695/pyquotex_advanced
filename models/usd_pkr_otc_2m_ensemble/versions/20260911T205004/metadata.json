@@ -1,0 +1,28 @@
+{
+  "algorithm": "ensemble",
+  "model_class": "EnsembleModel",
+  "model_module": "ml.models.ensemble",
+  "asset": "USD/PKR (OTC)",
+  "timeframe": "2m",
+  "version": "20260911T205004",
+  "trained_at": "2026-09-11T20:50:04.728157",
+  "feature_names": [
+    "returns_1",
+    "returns_3",
+    "rsi_14",
+    "macd_histogram",
+    "atr_14",
+    "bb_percent_b",
+    "sma_20_slope",
+    "sma_50_ratio",
+    "sma_50",
+    "sma_100",
+    "ema_12_ratio",
+    "ema_26_ratio",
+    "high_low_range"
+  ],
+  "metrics": {
+    "status": "trained",
+    "samples": 198
+  }
+}
