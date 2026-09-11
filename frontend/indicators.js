@@ -1754,6 +1754,176 @@ Indicators.AreaFill = class extends IndicatorBase {
 // =============================================================================
 // 📋 TEMPLATES REGISTRY
 // =============================================================================
+const TPL_CONFIGURABLE_MA = `
+// =============================================================================
+// Configurable Moving Average - SMA/EMA/WMA with user-selectable parameters
+// =============================================================================
+Indicators.ConfigurableMA = class extends IndicatorBase {
+    constructor() {
+        super({ type: 'overlay' });
+
+        // User-configurable settings
+        this.settings = {
+            maType: 'SMA',           // MA type: SMA, EMA, WMA, DEMA, TEMA, HMA
+            period: 20,              // Moving average period
+            color: '#d4af37',        // Display color
+            lineWidth: 2,            // Line thickness
+            showLabel: true          // Show MA type in label
+        };
+
+        // MA type descriptions
+        this.maTypes = {
+            'SMA': 'Simple Moving Average - arithmetic mean',
+            'EMA': 'Exponential Moving Average - weights recent prices more',
+            'WMA': 'Weighted Moving Average - linearly weighted',
+            'DEMA': 'Double EMA - smoother trend',
+            'TEMA': 'Triple EMA - even smoother',
+            'HMA': 'Hull MA - faster response to changes'
+        };
+
+        this._buffer = [];
+        this._series = null;
+    }
+
+    init(cm) {
+        super.init(cm);
+        const label = this.settings.showLabel
+            ? \`\${this.settings.maType}(\${this.settings.period})\`
+            : \`MA(\${this.settings.period})\`;
+
+        this._series = this.createOverlayLine({
+            color: this.settings.color,
+            lineWidth: this.settings.lineWidth,
+            lastValueVisible: true,
+            priceLineVisible: false,
+            title: label
+        });
+    }
+
+    // Calculate different MA types
+    calculateMA(prices, type, period) {
+        if (prices.length < period) return null;
+
+        switch(type.toUpperCase()) {
+            case 'SMA':
+                return this.calculateSMA(prices, period);
+            case 'EMA':
+                return this.calculateEMA(prices, period);
+            case 'WMA':
+                return this.calculateWMA(prices, period);
+            case 'DEMA':
+                return this.calculateDEMA(prices, period);
+            case 'TEMA':
+                return this.calculateTEMA(prices, period);
+            case 'HMA':
+                return this.calculateHMA(prices, period);
+            default:
+                return this.calculateSMA(prices, period);
+        }
+    }
+
+    calculateSMA(prices, period) {
+        const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
+        return sum / period;
+    }
+
+    calculateEMA(prices, period) {
+        if (prices.length < 2) return prices[0];
+        const k = 2 / (period + 1);
+        let ema = prices[0];
+        for (let i = 1; i < prices.length; i++) {
+            ema = ema * (1 - k) + prices[i] * k;
+        }
+        return ema;
+    }
+
+    calculateWMA(prices, period) {
+        if (prices.length < period) return null;
+        let weighted = 0;
+        let weight_sum = 0;
+        for (let i = 0; i < period; i++) {
+            const weight = i + 1;
+            weighted += prices[prices.length - period + i] * weight;
+            weight_sum += weight;
+        }
+        return weighted / weight_sum;
+    }
+
+    calculateDEMA(prices, period) {
+        const ema1 = this.calculateEMA(prices, period);
+        if (!ema1) return null;
+
+        // For DEMA, use last 'period' values
+        const recentPrices = prices.slice(-period);
+        const ema2 = this.calculateEMA(recentPrices, period);
+
+        return 2 * ema1 - ema2;
+    }
+
+    calculateTEMA(prices, period) {
+        const ema1 = this.calculateEMA(prices, period);
+        if (!ema1) return null;
+
+        const recentPrices = prices.slice(-period);
+        const ema2 = this.calculateEMA(recentPrices, period);
+        const ema3 = this.calculateEMA([ema2], period);
+
+        return 3 * ema1 - 3 * ema2 + ema3;
+    }
+
+    calculateHMA(prices, period) {
+        const half = Math.max(1, Math.floor(period / 2));
+        const sqrt = Math.max(1, Math.floor(Math.sqrt(period)));
+
+        const wmaHalf = this.calculateWMA(prices, half);
+        const wmaFull = this.calculateWMA(prices, period);
+
+        if (!wmaHalf || !wmaFull) return null;
+
+        const combined = 2 * wmaHalf - wmaFull;
+        return this.calculateWMA([combined], sqrt);
+    }
+
+    update(candles) {
+        try {
+            if (!candles || candles.length < this.settings.period) return;
+
+            const prices = candles.map(c => c.close);
+            const result = [];
+
+            // Build result array with rolling MA values
+            for (let i = this.settings.period - 1; i < candles.length; i++) {
+                const windowPrices = prices.slice(0, i + 1);
+                const maValue = this.calculateMA(windowPrices, this.settings.maType, this.settings.period);
+
+                if (maValue !== null) {
+                    result.push({ time: candles[i].time, value: maValue });
+                    this._lastCalculatedValue = maValue;
+                    this._lastClosedCandle = candles[i];
+                }
+            }
+
+            if (result.length > 0 && this._series) {
+                this._series.setData(result);
+            }
+            this._initialized = true;
+        } catch (e) { console.warn('ConfigurableMA update error:', e); }
+    }
+
+    updateLast(candle) {
+        if (this._initialized && candle && this._series && this._lastCalculatedValue !== null) {
+            this._series.update({ time: candle.time, value: this._lastCalculatedValue });
+        }
+    }
+
+    destroy() {
+        this._buffer = [];
+        this._series = null;
+        super.destroy();
+    }
+};
+`;
+
 const TPL_SMA50 = `
 // 50-period Simple Moving Average
 Indicators.SMA50 = class extends IndicatorBase {
@@ -1885,6 +2055,38 @@ Indicators.SMA100 = class extends IndicatorBase {
 `;
 
 const TEMPLATES = {
+    configurableMA: {
+        name: 'ConfigurableMA',
+        type: 'ov',
+        code: TPL_CONFIGURABLE_MA,
+        description: 'Configurable Moving Average - Choose type (SMA/EMA/WMA/DEMA/TEMA/HMA), period, and color',
+        isTemplate: false,
+        help: `
+CONFIGURABLE MOVING AVERAGE SETTINGS:
+
+📊 MA Type Selection:
+   • SMA - Simple Moving Average (arithmetic mean)
+   • EMA - Exponential Moving Average (weighs recent prices more)
+   • WMA - Weighted Moving Average (linearly weighted)
+   • DEMA - Double EMA (smoother, less lag)
+   • TEMA - Triple EMA (even smoother)
+   • HMA - Hull MA (faster response to changes)
+
+⚙️ Configuration:
+   1. Open indicator settings (right-click on legend or use indicator panel)
+   2. Set 'maType' to your preferred MA type
+   3. Set 'period' to desired lookback period (e.g., 20, 50, 100, 200)
+   4. Set 'color' to your preferred display color
+   5. Apply and watch the indicator update
+
+💡 Usage Tips:
+   • SMA 200 = Long-term trend / yearly MA
+   • SMA 50 = Medium-term trend / quarterly MA
+   • EMA 12/26 = Short-term trend / momentum
+   • DEMA/TEMA = Best for fast-moving markets
+   • HMA = Best for catching reversals quickly
+        `
+    },
     ma: {
         name: 'MovingAverage',
         type: 'ov',

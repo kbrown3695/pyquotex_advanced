@@ -23,6 +23,88 @@ def ema(prices: List[float], period: int) -> List[float]:
     return ema_vals
 
 
+def wma(prices: List[float], period: int) -> List[float]:
+    """Weighted moving average - linearly weighted toward recent prices."""
+    if len(prices) < period:
+        return [None] * len(prices)
+
+    wma_vals = [None] * (period - 1)
+    weights = np.arange(1, period + 1, dtype=np.float64)
+    weights_sum = weights.sum()
+
+    for i in range(period - 1, len(prices)):
+        window = np.array(prices[i - period + 1:i + 1], dtype=np.float64)
+        wma_val = (window * weights).sum() / weights_sum
+        wma_vals.append(float(wma_val))
+
+    return wma_vals
+
+
+def dema(prices: List[float], period: int) -> List[float]:
+    """Double Exponential Moving Average - smoother trend."""
+    ema1 = ema(prices, period)
+    ema2_vals = ema(ema1, period)
+
+    # Pad ema2 to match length
+    ema2_vals = [None] * (len(ema1) - len(ema2_vals)) + ema2_vals
+
+    # DEMA = 2 * EMA - EMA(EMA)
+    result = []
+    for i in range(len(prices)):
+        if ema1[i] is not None and ema2_vals[i] is not None:
+            result.append(2 * ema1[i] - ema2_vals[i])
+        else:
+            result.append(None)
+
+    return result
+
+
+def tema(prices: List[float], period: int) -> List[float]:
+    """Triple Exponential Moving Average - very smooth trend."""
+    ema1 = ema(prices, period)
+    ema2 = ema(ema1, period)
+    ema3 = ema(ema2, period)
+
+    # Pad to match length
+    ema2 = [None] * (len(ema1) - len(ema2)) + ema2
+    ema3 = [None] * (len(ema1) - len(ema3)) + ema3
+
+    # TEMA = 3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA))
+    result = []
+    for i in range(len(prices)):
+        if ema1[i] is not None and ema2[i] is not None and ema3[i] is not None:
+            result.append(3 * ema1[i] - 3 * ema2[i] + ema3[i])
+        else:
+            result.append(None)
+
+    return result
+
+
+def hma(prices: List[float], period: int) -> List[float]:
+    """Hull Moving Average - faster response to price changes."""
+    if len(prices) < period:
+        return [None] * len(prices)
+
+    # HMA = WMA(2 * WMA(n/2) - WMA(n), sqrt(n))
+    half_period = max(1, period // 2)
+    sqrt_period = max(1, int(np.sqrt(period)))
+
+    wma_half = wma(prices, half_period)
+    wma_full = wma(prices, period)
+
+    # Combine: 2 * WMA(n/2) - WMA(n)
+    combined = []
+    for i in range(len(prices)):
+        if wma_half[i] is not None and wma_full[i] is not None:
+            combined.append(2 * wma_half[i] - wma_full[i])
+        else:
+            combined.append(None)
+
+    # Apply WMA(sqrt_period) to combined
+    hma_vals = wma(combined, sqrt_period)
+    return hma_vals
+
+
 def rsi(prices: List[float], period: int = 14) -> List[float]:
     """Relative Strength Index."""
     if len(prices) < period + 1:
