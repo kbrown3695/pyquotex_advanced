@@ -1783,6 +1783,89 @@ Indicators.ConfigurableMA = class extends IndicatorBase {
 
         this._buffer = [];
         this._series = null;
+        this._settingsPanel = null;
+    }
+
+    // Create settings UI panel with dropdown
+    createSettingsPanel() {
+        const panel = document.createElement('div');
+        panel.style.cssText = 'padding:12px; background:#1a1f2e; border:1px solid #3a4a5a; border-radius:4px; margin:8px 0;';
+        panel.innerHTML = \`
+            <div style="margin-bottom:8px;">
+                <label style="display:block; font-size:12px; color:#60a5fa; margin-bottom:4px;">MA Type</label>
+                <select id="ma-type-select" style="width:100%; padding:6px; background:#0f1419; color:#fff; border:1px solid #3a4a5a; border-radius:3px;">
+                    <option value="SMA">SMA - Simple (arithmetic mean)</option>
+                    <option value="EMA">EMA - Exponential (recent bias)</option>
+                    <option value="WMA">WMA - Weighted (linear bias)</option>
+                    <option value="DEMA">DEMA - Double EMA (smoother)</option>
+                    <option value="TEMA">TEMA - Triple EMA (very smooth)</option>
+                    <option value="HMA">HMA - Hull MA (fast response)</option>
+                </select>
+            </div>
+            <div style="margin-bottom:8px;">
+                <label style="display:block; font-size:12px; color:#60a5fa; margin-bottom:4px;">Period: <span id="period-value">\${this.settings.period}</span></label>
+                <input type="range" id="ma-period" min="2" max="200" value="\${this.settings.period}"
+                    style="width:100%; cursor:pointer;">
+            </div>
+            <div style="margin-bottom:8px;">
+                <label style="display:block; font-size:12px; color:#60a5fa; margin-bottom:4px;">Color</label>
+                <input type="color" id="ma-color" value="\${this.settings.color}"
+                    style="width:100%; height:32px; border:none; border-radius:3px; cursor:pointer;">
+            </div>
+            <div>
+                <label style="display:flex; align-items:center; font-size:12px; color:#60a5fa; cursor:pointer;">
+                    <input type="checkbox" id="show-label" \${this.settings.showLabel ? 'checked' : ''}
+                        style="margin-right:6px; cursor:pointer;">
+                    Show MA type in label
+                </label>
+            </div>
+        \`;
+
+        // Event listeners
+        const typeSelect = panel.querySelector('#ma-type-select');
+        const periodInput = panel.querySelector('#ma-period');
+        const colorInput = panel.querySelector('#ma-color');
+        const labelCheckbox = panel.querySelector('#show-label');
+        const periodValue = panel.querySelector('#period-value');
+
+        typeSelect.value = this.settings.maType;
+        typeSelect.addEventListener('change', (e) => {
+            this.settings.maType = e.target.value;
+            this._updateLabel();
+            // Trigger recalculation with stored buffer if available
+            if (window.AppState && window.AppState.candles && window.AppState.currentAsset && window.AppState.currentTimeframe) {
+                const candles = window.AppState.candles[window.AppState.currentAsset]?.[window.AppState.currentTimeframe] || [];
+                if (candles.length > 0) this.update(candles);
+            }
+        });
+
+        periodInput.addEventListener('input', (e) => {
+            this.settings.period = parseInt(e.target.value, 10);
+            periodValue.textContent = this.settings.period;
+        });
+
+        periodInput.addEventListener('change', () => {
+            this._updateLabel();
+            // Trigger recalculation
+            if (window.AppState && window.AppState.candles && window.AppState.currentAsset && window.AppState.currentTimeframe) {
+                const candles = window.AppState.candles[window.AppState.currentAsset]?.[window.AppState.currentTimeframe] || [];
+                if (candles.length > 0) this.update(candles);
+            }
+        });
+
+        colorInput.addEventListener('change', (e) => {
+            this.settings.color = e.target.value;
+            if (this._series) {
+                this._series.applyOptions({ color: this.settings.color });
+            }
+        });
+
+        labelCheckbox.addEventListener('change', (e) => {
+            this.settings.showLabel = e.target.checked;
+            // Update label in series if needed
+        });
+
+        return panel;
     }
 
     init(cm) {
@@ -1798,6 +1881,23 @@ Indicators.ConfigurableMA = class extends IndicatorBase {
             priceLineVisible: false,
             title: label
         });
+
+        // Create settings panel (will be displayed by parent app)
+        this._settingsPanel = this.createSettingsPanel();
+    }
+
+    // Get settings panel for display
+    getSettingsPanel() {
+        return this._settingsPanel;
+    }
+
+    // Update label based on current settings
+    _updateLabel() {
+        if (!this._series) return;
+        const label = this.settings.showLabel
+            ? \`\${this.settings.maType}(\${this.settings.period})\`
+            : \`MA(\${this.settings.period})\`;
+        this._series.applyOptions({ title: label });
     }
 
     // Calculate different MA types
