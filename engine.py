@@ -1269,6 +1269,16 @@ def get_candle_count(asset: str, timeframe: str):
     return 0
 
 @eel.expose
+def get_available_assets():
+    """Get list of all available assets (for pair selector).
+
+    Returns:
+        List of asset symbols available for trading
+    """
+    global ASSETS_LIST
+    return ASSETS_LIST if ASSETS_LIST else []
+
+@eel.expose
 def start_signals_for_asset(asset: str, timeframe: str = "1m"):
     """Start signal generation for a specific asset (user enabled).
 

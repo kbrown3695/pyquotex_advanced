@@ -21,6 +21,15 @@ const MLSignals = {
      */
     async init() {
         console.log('🤖 ML Signals module initialized');
+
+        // Load available assets for pair selector
+        eel.get_available_assets()(assets => {
+            if (assets && Array.isArray(assets)) {
+                allAvailableAssets = assets;
+                console.log(`📊 Loaded ${assets.length} available assets`);
+            }
+        });
+
         this.startUpdating();
     },
 
@@ -235,14 +244,10 @@ const MLSignals = {
 // 🔹 Phase B: Multi-Asset Signal Panel
 // =============================================================================
 
-let currentSignalPair = "AUD/CAD (OTC)";
+let currentSignalPair = null;
 let signalPairPollInterval = null;
-let enabledPairs = {
-    "AUD/CAD (OTC)": true,
-    "USD/PKR (OTC)": true,
-    "EUR/USD (OTC)": true,
-    "GBP/USD (OTC)": true
-};
+let selectedPairs = ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"];  // Default pairs
+let allAvailableAssets = [];  // Will be loaded from backend
 
 /**
  * Open the multi-asset signal panel (Phase B).
@@ -251,9 +256,13 @@ function openSignalPairs() {
     console.log("🔓 openSignalPairs() called");
     const panel = document.getElementById('signal-pairs-panel');
     if (panel) {
+        loadPairPreferences();
+        renderPairTabs();
         panel.style.display = 'block';
-        loadEnabledPairs();  // Load saved preferences
         console.log("📊 Panel displayed, starting polling...");
+        if (selectedPairs.length > 0 && !currentSignalPair) {
+            currentSignalPair = selectedPairs[0];
+        }
         startSignalPairPolling();
     } else {
         console.error("❌ signal-pairs-panel element not found");
@@ -279,12 +288,13 @@ function switchSignalPair(pair) {
 
     // Update active tab
     document.querySelectorAll('.signal-pair-tab').forEach(tab => {
-        if (tab.dataset.pair === pair) {
-            tab.classList.add('active');
-        } else {
-            tab.classList.remove('active');
-        }
+        tab.classList.remove('active');
     });
+
+    const activeTab = document.querySelector(`[data-pair="${pair}"]`);
+    if (activeTab) {
+        activeTab.classList.add('active');
+    }
 
     // Update display
     updateSignalPairDisplay();
@@ -380,43 +390,70 @@ function stopSignalPairPolling() {
 }
 
 /**
- * Toggle signal generation for a pair (enable/disable).
+ * Add a pair to the monitoring list.
  */
-function togglePairSignals(pair, enabled) {
-    enabledPairs[pair] = enabled;
-
-    // Save preferences to localStorage
-    localStorage.setItem('enabledSignalPairs', JSON.stringify(enabledPairs));
-
-    // Notify backend to start/stop signal generation
-    if (enabled) {
-        eel.start_signals_for_asset(pair, "1m")(result => {
-            console.log(`✅ Started signals for ${pair}:`, result);
-        });
-    } else {
-        eel.stop_signals_for_asset(pair, "1m")(result => {
-            console.log(`⏹️ Stopped signals for ${pair}:`, result);
-        });
+function addPairToMonitor(pair) {
+    if (!selectedPairs.includes(pair)) {
+        selectedPairs.push(pair);
+        savePairPreferences();
+        startSignalsForPair(pair);
+        renderPairTabs();
+        console.log(`✅ Added ${pair} to monitoring`);
     }
-
-    console.log(`🔧 Pair ${pair} signals: ${enabled ? 'ENABLED' : 'DISABLED'}`);
 }
 
 /**
- * Load enabled pairs from localStorage.
+ * Remove a pair from the monitoring list.
  */
-function loadEnabledPairs() {
-    try {
-        const saved = localStorage.getItem('enabledSignalPairs');
-        if (saved) {
-            enabledPairs = JSON.parse(saved);
-            console.log('📋 Loaded saved pair preferences:', enabledPairs);
+function removePairFromMonitor(pair) {
+    selectedPairs = selectedPairs.filter(p => p !== pair);
+    savePairPreferences();
+    stopSignalsForPair(pair);
 
-            // Update UI checkboxes
-            document.querySelectorAll('.signal-toggle input[type="checkbox"]').forEach(checkbox => {
-                const pair = checkbox.dataset.pair;
-                checkbox.checked = enabledPairs[pair] !== false;
-            });
+    // Switch to first pair if current was removed
+    if (currentSignalPair === pair) {
+        currentSignalPair = selectedPairs[0] || null;
+    }
+
+    renderPairTabs();
+    updateSignalPairDisplay();
+    console.log(`❌ Removed ${pair} from monitoring`);
+}
+
+/**
+ * Start signal generation for a pair.
+ */
+function startSignalsForPair(pair) {
+    eel.start_signals_for_asset(pair, "1m")(result => {
+        console.log(`✅ Started signals for ${pair}:`, result);
+    });
+}
+
+/**
+ * Stop signal generation for a pair.
+ */
+function stopSignalsForPair(pair) {
+    eel.stop_signals_for_asset(pair, "1m")(result => {
+        console.log(`⏹️ Stopped signals for ${pair}:`, result);
+    });
+}
+
+/**
+ * Save pair preferences to localStorage.
+ */
+function savePairPreferences() {
+    localStorage.setItem('selectedSignalPairs', JSON.stringify(selectedPairs));
+}
+
+/**
+ * Load pair preferences from localStorage.
+ */
+function loadPairPreferences() {
+    try {
+        const saved = localStorage.getItem('selectedSignalPairs');
+        if (saved) {
+            selectedPairs = JSON.parse(saved);
+            console.log('📋 Loaded saved pairs:', selectedPairs);
         }
     } catch (e) {
         console.warn('⚠️ Failed to load preferences:', e);
@@ -424,20 +461,96 @@ function loadEnabledPairs() {
 }
 
 /**
- * Sync frontend toggles with backend on startup.
+ * Render pair tabs dynamically.
  */
-function syncPairEnabledStatus() {
-    Object.entries(enabledPairs).forEach(([pair, enabled]) => {
-        if (enabled) {
-            eel.start_signals_for_asset(pair, "1m")(result => {
-                console.log(`✅ Synced: Started signals for ${pair}`);
-            });
-        } else {
-            eel.stop_signals_for_asset(pair, "1m")(result => {
-                console.log(`⏹️ Synced: Stopped signals for ${pair}`);
-            });
-        }
+function renderPairTabs() {
+    const container = document.getElementById('signalPairTabs');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    selectedPairs.forEach((pair, index) => {
+        const tab = document.createElement('button');
+        tab.className = `signal-pair-tab ${index === 0 ? 'active' : ''}`;
+        tab.dataset.pair = pair;
+
+        // Extract pair name
+        const pairName = pair.replace(' (OTC)', '');
+
+        tab.innerHTML = `
+            <span onclick="switchSignalPair('${pair}')">${pairName}</span>
+            <span class="pair-tab-remove" onclick="removePairFromMonitor('${pair}')" title="Remove">✕</span>
+        `;
+
+        tab.onclick = (e) => {
+            if (!e.target.classList.contains('pair-tab-remove')) {
+                switchSignalPair(pair);
+            }
+        };
+
+        container.appendChild(tab);
     });
+
+    // Set first pair as current
+    if (selectedPairs.length > 0 && !currentSignalPair) {
+        currentSignalPair = selectedPairs[0];
+    }
+}
+
+/**
+ * Open pair selector modal.
+ */
+function openPairSelector() {
+    const modal = document.getElementById('pairSelectorModal');
+    if (!modal) return;
+
+    modal.style.display = 'block';
+    renderPairSelectorContent();
+
+    // Add search functionality
+    const searchInput = document.getElementById('pairSearch');
+    if (searchInput) {
+        searchInput.oninput = () => renderPairSelectorContent(searchInput.value);
+    }
+}
+
+/**
+ * Close pair selector modal.
+ */
+function closePairSelector() {
+    const modal = document.getElementById('pairSelectorModal');
+    if (modal) modal.style.display = 'none';
+}
+
+/**
+ * Render available pairs in selector.
+ */
+function renderPairSelectorContent(filter = '') {
+    const content = document.getElementById('pairSelectorContent');
+    if (!content) return;
+
+    const filteredAssets = allAvailableAssets.filter(asset =>
+        asset.toLowerCase().includes(filter.toLowerCase())
+    );
+
+    content.innerHTML = filteredAssets.map(asset => `
+        <div class="pair-selector-item ${selectedPairs.includes(asset) ? 'selected' : ''}"
+             onclick="togglePairSelection('${asset}')">
+            ${asset}
+        </div>
+    `).join('');
+}
+
+/**
+ * Toggle pair selection in modal.
+ */
+function togglePairSelection(pair) {
+    if (selectedPairs.includes(pair)) {
+        removePairFromMonitor(pair);
+    } else {
+        addPairToMonitor(pair);
+    }
+    renderPairSelectorContent(document.getElementById('pairSearch')?.value || '');
 }
 
 // Auto-init on page load if eel is available
