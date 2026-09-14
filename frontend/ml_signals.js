@@ -242,10 +242,14 @@ let signalPairPollInterval = null;
  * Open the multi-asset signal panel (Phase B).
  */
 function openSignalPairs() {
+    console.log("🔓 openSignalPairs() called");
     const panel = document.getElementById('signal-pairs-panel');
     if (panel) {
         panel.style.display = 'block';
+        console.log("📊 Panel displayed, starting polling...");
         startSignalPairPolling();
+    } else {
+        console.error("❌ signal-pairs-panel element not found");
     }
 }
 
@@ -333,13 +337,19 @@ function updateSignalPairDisplay() {
  * Start polling for signal updates (every 500ms).
  */
 function startSignalPairPolling() {
-    if (signalPairPollInterval) return;
+    console.log("⏱️ startSignalPairPolling() called");
+    if (signalPairPollInterval) {
+        console.warn("⚠️ Poll already running, skipping");
+        return;
+    }
 
+    console.log(`📡 Starting poll every 500ms for pair: ${currentSignalPair}`);
     signalPairPollInterval = setInterval(() => {
         updateSignalPairDisplay();
     }, 500);
 
     // Immediate update
+    console.log("🔄 Immediate signal check...");
     updateSignalPairDisplay();
 }
 
