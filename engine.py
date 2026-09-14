@@ -136,7 +136,7 @@ LAST_RECONNECT_TIME = 0
 # ML Signal Generators
 ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
 ML_SERVICE = MLSignalService() if MLSignalService else None
-SIGNAL_MANAGER = AsyncSignalManager(ML_SERVICE) if AsyncSignalManager and ML_SERVICE else None
+SIGNAL_MANAGER = None  # Initialized lazily on first use
 
 # ✅ تحسين #5: أوقات مخفضة
 TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
@@ -909,9 +909,15 @@ def _start_signal_generation(asset: str, timeframe: str = "1m") -> None:
     Called when an asset is selected. Creates a background thread
     that generates signals every 10 seconds.
     """
-    global SIGNAL_MANAGER, ML_SERVICE, CANDLE_STORE
+    global SIGNAL_MANAGER, ML_SERVICE, CANDLE_STORE, AsyncSignalManager
+
+    # Lazy initialize SIGNAL_MANAGER if needed
+    if not SIGNAL_MANAGER and ML_SERVICE and AsyncSignalManager:
+        SIGNAL_MANAGER = AsyncSignalManager(ML_SERVICE)
+        log(f"🔗 AsyncSignalManager initialized", 1)
+
     if not SIGNAL_MANAGER or not ML_SERVICE:
-        log(f"⚠️ Signal manager or ML service not initialized", 1)
+        log(f"⚠️ Cannot start signals: ML service={ML_SERVICE is not None}, manager={SIGNAL_MANAGER is not None}", 1)
         return
 
     # Check if signal thread already running for this asset
