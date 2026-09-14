@@ -291,24 +291,31 @@ function updateSignalPairDisplay() {
 
     eel.get_signal_for_asset(currentSignalPair, "1m")(signal => {
         const display = document.getElementById('signalPairDisplay');
-        if (!display) return;
+        if (!display) {
+            console.error('❌ signalPairDisplay element not found!');
+            return;
+        }
 
-        console.log(`[updateSignalPairDisplay] Pair: ${currentSignalPair}, Signal:`, signal);
+        console.log(`📊 [${currentSignalPair}] Signal received:`, signal);
 
-        if (signal) {
-            const buyColor = signal.side === 'BUY' ? '#00C510' : '#ff0000';
+        if (signal && signal.side && signal.confidence !== undefined) {
             const sideClass = signal.side === 'BUY' ? 'signal-pair-buy' : 'signal-pair-sell';
+            const confidence = typeof signal.confidence === 'number' ? signal.confidence : 0;
 
             // Format components
             let componentsHTML = '';
-            if (signal.components) {
+            if (signal.components && typeof signal.components === 'object') {
                 componentsHTML = '<div class="signal-pair-components"><strong>Components:</strong><br>';
-                for (const [key, value] of Object.entries(signal.components)) {
-                    if (typeof value === 'object' && value.p_up !== undefined) {
-                        componentsHTML += `${key}: ${(value.p_up * 100).toFixed(0)}% | `;
-                    } else if (typeof value === 'number') {
-                        componentsHTML += `${key}: ${value.toFixed(4)} | `;
+                try {
+                    for (const [key, value] of Object.entries(signal.components)) {
+                        if (typeof value === 'object' && value.p_up !== undefined) {
+                            componentsHTML += `${key}: ${(value.p_up * 100).toFixed(0)}% | `;
+                        } else if (typeof value === 'number') {
+                            componentsHTML += `${key}: ${value.toFixed(4)} | `;
+                        }
                     }
+                } catch (e) {
+                    console.warn('⚠️ Error formatting components:', e);
                 }
                 componentsHTML += '</div>';
             }
@@ -319,15 +326,17 @@ function updateSignalPairDisplay() {
                         ${signal.side}
                     </div>
                     <div class="signal-pair-confidence">
-                        Confidence: ${(signal.confidence * 100).toFixed(1)}%
+                        Confidence: ${(confidence * 100).toFixed(1)}%
                     </div>
                     <div class="signal-pair-reason">
-                        <strong>Reason:</strong> ${signal.reason}
+                        <strong>Reason:</strong> ${signal.reason || 'ML Ensemble'}
                     </div>
                     ${componentsHTML}
                 </div>
             `;
+            console.log(`✅ Signal displayed for ${currentSignalPair}`);
         } else {
+            console.warn(`⚠️ Invalid signal for ${currentSignalPair}:`, signal);
             display.innerHTML = '<div style="text-align: center; color: #999;">Waiting for signal...</div>';
         }
     });

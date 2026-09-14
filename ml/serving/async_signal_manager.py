@@ -110,6 +110,10 @@ class AsyncSignalManager:
         max_errors = 5
         iteration = 0
 
+        # Log thread start
+        import sys
+        print(f"[{asset} {timeframe}] Signal thread started", file=sys.stderr)
+
         while not stop_event.is_set():
             iteration += 1
             try:
@@ -117,15 +121,15 @@ class AsyncSignalManager:
                 candle_count = len(candles) if candles else 0
 
                 if not candles:
-                    # Not ready yet - log every 10 iterations
-                    if iteration % 10 == 0:
+                    # Not ready yet - log every 5 iterations
+                    if iteration % 5 == 0:
                         import sys
-                        print(f"[{asset} {timeframe}] No candles available", file=sys.stderr)
+                        print(f"[{asset} {timeframe}] ⏳ No candles available (iteration {iteration})", file=sys.stderr)
                 elif len(candles) < 26:
-                    # Not enough candles yet - log every 10 iterations
-                    if iteration % 10 == 0:
+                    # Not enough candles yet - log every 5 iterations
+                    if iteration % 5 == 0:
                         import sys
-                        print(f"[{asset} {timeframe}] Only {candle_count} candles (need 26)", file=sys.stderr)
+                        print(f"[{asset} {timeframe}] ⏳ Only {candle_count} candles (need 26, iteration {iteration})", file=sys.stderr)
                 else:
                     # Try to generate signal
                     signal = self.ml_service.generate_signal(asset, timeframe, candles)

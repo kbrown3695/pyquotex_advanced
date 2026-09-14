@@ -751,6 +751,35 @@ async def chart_opened_loader(asset: str):
     ACTIVE_TASKS[asset] = task
     BACKGROUND_LOADER_TASK = asyncio.create_task(smart_background_loader(asset))
 
+    # Phase B: Pre-load candles from database for all 4 pairs, then start signal generation
+    global CANDLES, CANDLE_STORE
+    for pair_display in ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"]:
+        if pair_display not in CANDLES or "1m" not in CANDLES[pair_display]:
+            if CANDLE_STORE:
+                try:
+                    db_candles = CANDLE_STORE.get_candles(pair_display, "1m", limit=200)
+                    if db_candles:
+                        if pair_display not in CANDLES:
+                            CANDLES[pair_display] = {}
+                        CANDLES[pair_display]["1m"] = db_candles
+                except Exception:
+                    pass
+
+    log("🔗 Starting signal generation for all 4 pairs in parallel...", 2)
+    for pair_display in ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"]:
+        _start_signal_generation(pair_display, "1m")
+
+    # Phase B: Start background streaming for other 3 pairs so they accumulate candles
+    async def load_other_pairs():
+        other_pairs = ["EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"]
+        for pair in other_pairs:
+            try:
+                await load_timeframe_data(pair, "1m", 60)
+            except Exception:
+                pass
+
+    asyncio.create_task(load_other_pairs())
+
 async def smart_background_loader(asset: str):
     for tf in ["5m", "15m", "30m", "1h", "10s", "30s", "2m", "3m", "10m", "4h", "5s", "15s"]:
         if CURRENT_ASSET != asset:
@@ -854,13 +883,18 @@ async def start_streaming(asset: str):
                 break
             except Exception:
                 await asyncio.sleep(1)
+    print(f"[start_streaming] About to create realtime_price_loop for {asset}", file=sys.stderr)
     task = asyncio.create_task(realtime_price_loop(asset))
     ACTIVE_TASKS[asset] = task
+    print(f"[start_streaming] Realtime task created", file=sys.stderr)
     BACKGROUND_LOADER_TASK = asyncio.create_task(smart_background_loader(asset))
+    print(f"[start_streaming] Background loader created", file=sys.stderr)
 
     # Phase B: Start signal generation for this asset
+    print(f"[start_streaming] About to start signal generation for {asset}...", file=sys.stderr)
     log(f"Starting signal generation for {asset}...", 2)
     _start_signal_generation(asset, CURRENT_TIMEFRAME)
+    print(f"[start_streaming] Signal generation call completed", file=sys.stderr)
 
 # ======================
 # Input Validation
@@ -944,8 +978,6 @@ def _start_signal_generation(asset: str, timeframe: str = "1m") -> None:
                 if CANDLE_STORE:
                     try:
                         candles = CANDLE_STORE.get_candles(asset, timeframe, limit=200)
-                        if candles:
-                            log(f"Loaded {len(candles)} candles from DB for {asset} {timeframe}", 2)
                     except Exception:
                         pass
             return candles
