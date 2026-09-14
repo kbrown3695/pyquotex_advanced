@@ -561,7 +561,7 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
     formatted.sort(key=lambda x: x["time"])
     return formatted
 
-def update_candle(asset: str, frame: str, price: float, ts_sec: int):
+def update_candle(asset: str, frame: str, price: float, ts_sec: int, volume: float = 0.0):
     global CANDLES, CURRENT_CANDLE, CANDLE_STORE, TIMEFRAME_AGGREGATOR
     duration = TIMEFRAMES.get(frame, 60)
     start = (ts_sec // duration) * duration
@@ -578,12 +578,13 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int):
             if len(CANDLES[asset][frame]) > 200:
                 CANDLES[asset][frame] = CANDLES[asset][frame][-200:]
         CURRENT_CANDLE.setdefault(asset, {})[frame] = {
-            "time": start, "open": price, "high": price, "low": price, "close": price
+            "time": start, "open": price, "high": price, "low": price, "close": price, "volume": volume
         }
     else:
         if price > curr["high"]: curr["high"] = price
         if price < curr["low"]:  curr["low"] = price
         curr["close"] = price
+        curr["volume"] = curr.get("volume", 0) + volume
 
 def prune_candle_cache(keep_asset: str):
     """Drop cached candles for all assets except those with active signals.
