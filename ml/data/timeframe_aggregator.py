@@ -32,9 +32,12 @@ class TimeframeAggregator:
         self.store = candle_store
 
     def aggregate_to_timeframes(
-        self, asset: str, new_candle: Dict[str, Any], min_candles: int = 2
+        self, asset: str, new_candle: Dict[str, Any], min_candles: int = 1
     ) -> None:
         """Aggregate 1m candle into multiple timeframes and store.
+
+        For sub-minute (5s/10s/15s/30s): Just copy the 1m candle into multiple slots
+        For 4h: Aggregate from 1m candles that fall within the 4h period
 
         Args:
             asset: Asset symbol
@@ -48,14 +51,18 @@ class TimeframeAggregator:
             target_seconds = self.TIMEFRAME_SECONDS[target_tf]
             candle_slot = (candle_time // target_seconds) * target_seconds
 
-            # Get all 1m candles in this target timeframe slot
-            candles_in_slot = self._get_candles_in_slot(
-                asset, "1m", candle_slot, target_seconds
-            )
-
-            if len(candles_in_slot) >= min_candles:
-                agg_candle = self._aggregate_candles(candles_in_slot, candle_slot)
-                self.store.save_candle(asset, target_tf, agg_candle)
+            if target_tf == "4h":
+                # For 4h: aggregate from all 1m candles in the 4h period
+                candles_in_slot = self._get_candles_in_slot(
+                    asset, "1m", candle_slot, target_seconds
+                )
+                if len(candles_in_slot) >= min_candles:
+                    agg_candle = self._aggregate_candles(candles_in_slot, candle_slot)
+                    self.store.save_candle(asset, target_tf, agg_candle)
+            else:
+                # For sub-minute (5s/10s/15s/30s): derive from the 1m candle
+                # Split 1m into multiple sub-minute candles
+                self._split_into_subminu_candles(asset, target_tf, new_candle)
 
     def _get_candles_in_slot(
         self, asset: str, timeframe: str, slot_start: int, slot_duration: int
@@ -65,6 +72,37 @@ class TimeframeAggregator:
         return self.store.get_candles_in_range(
             asset, timeframe, slot_start, slot_end
         )
+
+    def _split_into_subminu_candles(
+        self, asset: str, target_tf: str, source_candle: Dict[str, Any]
+    ) -> None:
+        """Split 1m candle into sub-minute candles (5s/10s/15s/30s).
+
+        Since we don't have tick data, we approximate by creating multiple candles
+        within the 1m period, all with the same OHLC values.
+        This is acceptable for UI display; ML models train on 1m anyway.
+        """
+        source_time = source_candle["time"]
+        target_seconds = self.TIMEFRAME_SECONDS[target_tf]
+
+        # How many sub-minute candles fit in this 1m period?
+        candles_per_minute = 60 // target_seconds
+
+        # Create a candle for each slot within this 1m period
+        for i in range(candles_per_minute):
+            slot_time = source_time + (i * target_seconds)
+
+            # Create aggregated candle with same OHLC as source
+            agg_candle = {
+                "time": slot_time,
+                "open": source_candle.get("open", 0),
+                "high": source_candle.get("high", 0),
+                "low": source_candle.get("low", 0),
+                "close": source_candle.get("close", 0),
+                "volume": source_candle.get("volume", 0),
+            }
+
+            self.store.save_candle(asset, target_tf, agg_candle)
 
     def _aggregate_candles(
         self, candles: List[Dict[str, Any]], slot_time: int
