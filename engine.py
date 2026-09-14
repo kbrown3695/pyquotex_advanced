@@ -255,7 +255,7 @@ BACKGROUND_LOADER_TASK = None
 # Phase B: Database & Async Signals
 # ======================
 CANDLE_STORE = CandleStore("quotex_candles.db") if CandleStore else None
-SIGNAL_MANAGER = None  # Initialized after ML service is ready
+# SIGNAL_MANAGER already initialized at module load (line ~140)
 
 # ======================
 # Helpers & Reconnection
