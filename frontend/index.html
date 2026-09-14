@@ -125,11 +125,34 @@
     <!-- 🔹 Signal Pairs Panel (Phase B) -->
     <div id="signal-pairs-panel" style="display: none;">
         <div class="sp-header">
-            <span class="sp-title">📊 Multi-Asset Signals (Phase B)</span>
+            <span class="sp-title">📊 Multi-Asset Signals</span>
             <span class="sp-close" onclick="closeSignalPairs()">&#10005;</span>
         </div>
 
         <div class="signal-pairs-content">
+            <!-- Pair Selection & Toggles -->
+            <div class="signal-pairs-selector">
+                <div class="sp-label">🔧 Enable Signals For:</div>
+                <div class="signal-pairs-toggles">
+                    <label class="signal-toggle">
+                        <input type="checkbox" data-pair="AUD/CAD (OTC)" checked onchange="togglePairSignals('AUD/CAD (OTC)', this.checked)">
+                        <span>AUD/CAD</span>
+                    </label>
+                    <label class="signal-toggle">
+                        <input type="checkbox" data-pair="USD/PKR (OTC)" checked onchange="togglePairSignals('USD/PKR (OTC)', this.checked)">
+                        <span>USD/PKR</span>
+                    </label>
+                    <label class="signal-toggle">
+                        <input type="checkbox" data-pair="EUR/USD (OTC)" checked onchange="togglePairSignals('EUR/USD (OTC)', this.checked)">
+                        <span>EUR/USD</span>
+                    </label>
+                    <label class="signal-toggle">
+                        <input type="checkbox" data-pair="GBP/USD (OTC)" checked onchange="togglePairSignals('GBP/USD (OTC)', this.checked)">
+                        <span>GBP/USD</span>
+                    </label>
+                </div>
+            </div>
+
             <!-- Pair Tabs -->
             <div class="signal-pair-tabs">
                 <button class="signal-pair-tab active" data-pair="AUD/CAD (OTC)" onclick="switchSignalPair('AUD/CAD (OTC)')">

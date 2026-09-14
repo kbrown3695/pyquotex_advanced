@@ -1269,6 +1269,59 @@ def get_candle_count(asset: str, timeframe: str):
     return 0
 
 @eel.expose
+def start_signals_for_asset(asset: str, timeframe: str = "1m"):
+    """Start signal generation for a specific asset (user enabled).
+
+    Args:
+        asset: Asset symbol
+        timeframe: Timeframe (default "1m")
+
+    Returns:
+        Success status dict
+    """
+    global SIGNAL_MANAGER, CANDLE_STORE
+    if not SIGNAL_MANAGER:
+        return {"success": False, "error": "SIGNAL_MANAGER not initialized"}
+
+    try:
+        # Get candles getter for this asset
+        def get_candles_fn():
+            if CANDLE_STORE:
+                return CANDLE_STORE.get_candles(asset, timeframe, limit=500)
+            return []
+
+        # Start signal generation thread
+        SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_fn)
+        log(f"✅ Started signal generation for {asset} {timeframe}", 1)
+        return {"success": True, "asset": asset, "timeframe": timeframe}
+    except Exception as e:
+        log(f"❌ Failed to start signals for {asset}: {e}", 1)
+        return {"success": False, "error": str(e)}
+
+@eel.expose
+def stop_signals_for_asset(asset: str, timeframe: str = "1m"):
+    """Stop signal generation for a specific asset (user disabled).
+
+    Args:
+        asset: Asset symbol
+        timeframe: Timeframe (default "1m")
+
+    Returns:
+        Success status dict
+    """
+    global SIGNAL_MANAGER
+    if not SIGNAL_MANAGER:
+        return {"success": False, "error": "SIGNAL_MANAGER not initialized"}
+
+    try:
+        SIGNAL_MANAGER.remove_asset(asset, timeframe)
+        log(f"⏹️ Stopped signal generation for {asset} {timeframe}", 1)
+        return {"success": True, "asset": asset, "timeframe": timeframe}
+    except Exception as e:
+        log(f"❌ Failed to stop signals for {asset}: {e}", 1)
+        return {"success": False, "error": str(e)}
+
+@eel.expose
 def get_signal_status():
     """Get diagnostic status of signal generation (Phase B).
 

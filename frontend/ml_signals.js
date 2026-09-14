@@ -237,6 +237,12 @@ const MLSignals = {
 
 let currentSignalPair = "AUD/CAD (OTC)";
 let signalPairPollInterval = null;
+let enabledPairs = {
+    "AUD/CAD (OTC)": true,
+    "USD/PKR (OTC)": true,
+    "EUR/USD (OTC)": true,
+    "GBP/USD (OTC)": true
+};
 
 /**
  * Open the multi-asset signal panel (Phase B).
@@ -246,6 +252,7 @@ function openSignalPairs() {
     const panel = document.getElementById('signal-pairs-panel');
     if (panel) {
         panel.style.display = 'block';
+        loadEnabledPairs();  // Load saved preferences
         console.log("📊 Panel displayed, starting polling...");
         startSignalPairPolling();
     } else {
@@ -370,6 +377,67 @@ function stopSignalPairPolling() {
         clearInterval(signalPairPollInterval);
         signalPairPollInterval = null;
     }
+}
+
+/**
+ * Toggle signal generation for a pair (enable/disable).
+ */
+function togglePairSignals(pair, enabled) {
+    enabledPairs[pair] = enabled;
+
+    // Save preferences to localStorage
+    localStorage.setItem('enabledSignalPairs', JSON.stringify(enabledPairs));
+
+    // Notify backend to start/stop signal generation
+    if (enabled) {
+        eel.start_signals_for_asset(pair, "1m")(result => {
+            console.log(`✅ Started signals for ${pair}:`, result);
+        });
+    } else {
+        eel.stop_signals_for_asset(pair, "1m")(result => {
+            console.log(`⏹️ Stopped signals for ${pair}:`, result);
+        });
+    }
+
+    console.log(`🔧 Pair ${pair} signals: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+}
+
+/**
+ * Load enabled pairs from localStorage.
+ */
+function loadEnabledPairs() {
+    try {
+        const saved = localStorage.getItem('enabledSignalPairs');
+        if (saved) {
+            enabledPairs = JSON.parse(saved);
+            console.log('📋 Loaded saved pair preferences:', enabledPairs);
+
+            // Update UI checkboxes
+            document.querySelectorAll('.signal-toggle input[type="checkbox"]').forEach(checkbox => {
+                const pair = checkbox.dataset.pair;
+                checkbox.checked = enabledPairs[pair] !== false;
+            });
+        }
+    } catch (e) {
+        console.warn('⚠️ Failed to load preferences:', e);
+    }
+}
+
+/**
+ * Sync frontend toggles with backend on startup.
+ */
+function syncPairEnabledStatus() {
+    Object.entries(enabledPairs).forEach(([pair, enabled]) => {
+        if (enabled) {
+            eel.start_signals_for_asset(pair, "1m")(result => {
+                console.log(`✅ Synced: Started signals for ${pair}`);
+            });
+        } else {
+            eel.stop_signals_for_asset(pair, "1m")(result => {
+                console.log(`⏹️ Synced: Stopped signals for ${pair}`);
+            });
+        }
+    });
 }
 
 // Auto-init on page load if eel is available
