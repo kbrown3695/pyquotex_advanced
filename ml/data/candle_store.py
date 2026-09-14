@@ -275,5 +275,36 @@ class CandleStore:
         finally:
             conn.close()
 
+    def get_candles_in_range(
+        self, asset: str, timeframe: str, start_time: int, end_time: int
+    ) -> List[Dict[str, Any]]:
+        """Get candles within a time range.
+
+        Args:
+            asset: Asset symbol
+            timeframe: Timeframe
+            start_time: Unix timestamp (inclusive)
+            end_time: Unix timestamp (exclusive)
+
+        Returns:
+            List of candle dicts, ordered by time ASC
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                """
+                SELECT * FROM candles
+                WHERE asset = ? AND timeframe = ? AND time >= ? AND time < ?
+                ORDER BY time ASC
+                """,
+                (asset, timeframe, start_time, end_time),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
 
 __all__ = ["CandleStore"]

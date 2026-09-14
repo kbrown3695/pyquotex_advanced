@@ -72,6 +72,12 @@ except ImportError as e:
     CandleStore = None
 
 try:
+    from ml.data.timeframe_aggregator import TimeframeAggregator
+except ImportError as e:
+    print(f"⚠️ Timeframe aggregator not available: {e}")
+    TimeframeAggregator = None
+
+try:
     from ml.serving.async_signal_manager import AsyncSignalManager
 except ImportError as e:
     print(f"⚠️ Async signal manager not available: {e}")
@@ -231,9 +237,10 @@ ASSET_CATEGORIES = {
 ASSETS_LIST = list(ASSET_DISPLAY_MAP.values())
 
 TIMEFRAMES = {
+    "5s": 5, "10s": 10, "15s": 15, "30s": 30,
     "1m": 60, "2m": 120, "3m": 180, "5m": 300,
     "10m": 600, "15m": 900, "30m": 1800,
-    "1h": 3600
+    "1h": 3600, "4h": 14400
 }
 
 CLIENT: Optional[Quotex] = None
@@ -262,6 +269,7 @@ BACKGROUND_LOADER_TASK = None
 # Phase B: Database & Async Signals
 # ======================
 CANDLE_STORE = CandleStore("quotex_candles.db") if CandleStore else None
+TIMEFRAME_AGGREGATOR = TimeframeAggregator(CANDLE_STORE) if (TimeframeAggregator and CANDLE_STORE) else None
 # SIGNAL_MANAGER already initialized at module load (line ~140)
 
 # Default pairs for multi-asset signal generation
@@ -554,7 +562,7 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
     return formatted
 
 def update_candle(asset: str, frame: str, price: float, ts_sec: int):
-    global CANDLES, CURRENT_CANDLE, CANDLE_STORE
+    global CANDLES, CURRENT_CANDLE, CANDLE_STORE, TIMEFRAME_AGGREGATOR
     duration = TIMEFRAMES.get(frame, 60)
     start = (ts_sec // duration) * duration
     curr = CURRENT_CANDLE.get(asset, {}).get(frame, {})
@@ -564,6 +572,9 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int):
             # Save completed candle to database (Phase B)
             if CANDLE_STORE:
                 CANDLE_STORE.save_candle(asset, frame, curr.copy())
+                # Aggregate 1m candles into other timeframes
+                if frame == "1m" and TIMEFRAME_AGGREGATOR:
+                    TIMEFRAME_AGGREGATOR.aggregate_to_timeframes(asset, curr.copy())
             if len(CANDLES[asset][frame]) > 200:
                 CANDLES[asset][frame] = CANDLES[asset][frame][-200:]
         CURRENT_CANDLE.setdefault(asset, {})[frame] = {
@@ -783,6 +794,19 @@ async def realtime_price_loop(asset_display: str):
 async def load_timeframe_data(asset: str, tf: str, period: int) -> List[dict]:
     if not CLIENT or not CLIENT.api:
         return []
+
+    # For aggregated timeframes, try database first
+    aggregated_tfs = {"5s", "10s", "15s", "30s", "4h"}
+    if tf in aggregated_tfs:
+        try:
+            db_candles = CANDLE_STORE.get_candles(asset, tf, limit=199)
+            if db_candles and len(db_candles) > 10:
+                CANDLES.setdefault(asset, {})[tf] = db_candles
+                return db_candles
+        except Exception:
+            pass  # Fall through to API if DB fails
+
+    # For standard API timeframes, hit Quotex
     internal = DISPLAY_TO_INTERNAL.get(asset, "AUDCAD_otc")
     try:
         hist = await CLIENT.get_candles(internal, time.time(), 199 * period, period)
