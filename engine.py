@@ -1286,6 +1286,8 @@ def get_available_assets():
 def start_signals_for_asset(asset: str, timeframe: str = "1m"):
     """Start signal generation for a specific asset (user enabled).
 
+    Automatically loads initial candles from database or WebSocket stream.
+
     Args:
         asset: Asset symbol
         timeframe: Timeframe (default "1m")
@@ -1293,7 +1295,7 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
     Returns:
         Success status dict
     """
-    global SIGNAL_MANAGER, CANDLE_STORE
+    global SIGNAL_MANAGER, CANDLE_STORE, ASYNC_LOOP
     if not SIGNAL_MANAGER:
         return {"success": False, "error": "SIGNAL_MANAGER not initialized"}
 
@@ -1301,12 +1303,38 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
         # Get candles getter for this asset
         def get_candles_fn():
             if CANDLE_STORE:
-                return CANDLE_STORE.get_candles(asset, timeframe, limit=500)
+                candles = CANDLE_STORE.get_candles(asset, timeframe, limit=500)
+                return candles if candles else []
             return []
 
         # Start signal generation thread
         SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_fn)
         log(f"✅ Started signal generation for {asset} {timeframe}", 1)
+
+        # Background task: load initial candles for this asset
+        def load_initial_candles():
+            try:
+                if not CLIENT:
+                    return
+
+                # Load 200 historical candles
+                candle_count = CANDLE_STORE.count_candles(asset, timeframe) if CANDLE_STORE else 0
+                if candle_count < 26:
+                    # Need more candles - subscribe temporarily
+                    log(f"📡 Pre-loading candles for new pair {asset}...", 1)
+                    fut = asyncio.run_coroutine_threadsafe(
+                        CLIENT.get_candles(asset, timeframe, 200),
+                        ASYNC_LOOP
+                    )
+                    candles = fut.result(timeout=10)
+                    if candles and CANDLE_STORE:
+                        CANDLE_STORE.save_candles_batch(asset, timeframe, candles)
+                        log(f"✅ Pre-loaded {len(candles)} candles for {asset}", 1)
+            except Exception as e:
+                log(f"⚠️ Failed to pre-load candles for {asset}: {e}", 1)
+
+        threading.Thread(target=load_initial_candles, daemon=True, name=f"Loader-{asset}").start()
+
         return {"success": True, "asset": asset, "timeframe": timeframe}
     except Exception as e:
         log(f"❌ Failed to start signals for {asset}: {e}", 1)

@@ -400,9 +400,10 @@ function addPairToMonitor(pair) {
     if (!selectedPairs.includes(pair)) {
         selectedPairs.push(pair);
         savePairPreferences();
-        startSignalsForPair(pair);
         renderPairTabs();
-        console.log(`✅ Added ${pair} to monitoring`);
+
+        console.log(`📡 Adding ${pair} to monitoring (loading candles)...`);
+        startSignalsForPair(pair);  // This will load candles in background
     }
 }
 
