@@ -1159,15 +1159,22 @@ def get_signal_for_asset(asset: str, timeframe: str = "1m"):
     """
     global SIGNAL_MANAGER
     if not SIGNAL_MANAGER:
-        log(f"⚠️ get_signal_for_asset called but SIGNAL_MANAGER is None", 2)
+        log(f"⚠️ get_signal_for_asset({asset}): SIGNAL_MANAGER is None", 2)
         return None
 
     signal = SIGNAL_MANAGER.get_signal(asset, timeframe)
-    if not signal and SIGNAL_MANAGER:
-        # Debug: show cache status
-        key = f"{asset}_{timeframe}"
-        cached = key in SIGNAL_MANAGER.signal_cache
-        log(f"⚠️ get_signal_for_asset({asset}): no signal (cached={cached}, total_cached={len(SIGNAL_MANAGER.signal_cache)})", 2)
+    key = f"{asset}_{timeframe}"
+
+    if signal:
+        log(f"✅ get_signal_for_asset({asset}): returning signal {signal.get('side')}", 2)
+    else:
+        # Debug: show what's actually cached
+        if SIGNAL_MANAGER.signal_cache:
+            cached_keys = list(SIGNAL_MANAGER.signal_cache.keys())
+            log(f"⚠️ get_signal_for_asset({asset}): no signal for key '{key}'. Available: {cached_keys}", 2)
+        else:
+            log(f"⚠️ get_signal_for_asset({asset}): cache is empty", 2)
+
     return signal
 
 @eel.expose

@@ -289,6 +289,8 @@ function updateSignalPairDisplay() {
         const display = document.getElementById('signalPairDisplay');
         if (!display) return;
 
+        console.log(`[updateSignalPairDisplay] Pair: ${currentSignalPair}, Signal:`, signal);
+
         if (signal) {
             const buyColor = signal.side === 'BUY' ? '#00C510' : '#ff0000';
             const sideClass = signal.side === 'BUY' ? 'signal-pair-buy' : 'signal-pair-sell';
