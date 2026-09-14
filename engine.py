@@ -226,6 +226,10 @@ ASSET_CATEGORIES = {
     "🏦 Stocks": list(stocks_assets.values()),
     "📊 Indices": list(indices_assets.values()),
 }
+
+# Flat list of all available assets for pair selector
+ASSETS_LIST = list(ASSET_DISPLAY_MAP.values())
+
 TIMEFRAMES = {
     "5s": 5, "10s": 10, "15s": 15, "30s": 30,
     "1m": 60, "2m": 120, "3m": 180, "5m": 300,

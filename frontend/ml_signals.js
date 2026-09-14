@@ -22,13 +22,17 @@ const MLSignals = {
     async init() {
         console.log('🤖 ML Signals module initialized');
 
-        // Load available assets for pair selector
-        eel.get_available_assets()(assets => {
-            if (assets && Array.isArray(assets)) {
-                allAvailableAssets = assets;
-                console.log(`📊 Loaded ${assets.length} available assets`);
-            }
-        });
+        // Load available assets for pair selector (in background)
+        if (window.eel) {
+            eel.get_available_assets()(assets => {
+                if (assets && Array.isArray(assets)) {
+                    allAvailableAssets = assets.sort();
+                    console.log(`✅ Pre-loaded ${assets.length} available assets`);
+                } else {
+                    console.warn('⚠️ No assets returned from backend');
+                }
+            });
+        }
 
         this.startUpdating();
     },
@@ -504,13 +508,30 @@ function openPairSelector() {
     const modal = document.getElementById('pairSelectorModal');
     if (!modal) return;
 
+    // Load assets if not already loaded
+    if (allAvailableAssets.length === 0) {
+        console.log("📡 Loading available assets...");
+        eel.get_available_assets()(assets => {
+            if (assets && Array.isArray(assets)) {
+                allAvailableAssets = assets.sort();
+                console.log(`✅ Loaded ${assets.length} available assets`);
+                renderPairSelectorContent();
+            } else {
+                console.error("❌ Failed to load assets:", assets);
+            }
+        });
+    } else {
+        renderPairSelectorContent();
+    }
+
     modal.style.display = 'block';
-    renderPairSelectorContent();
 
     // Add search functionality
     const searchInput = document.getElementById('pairSearch');
     if (searchInput) {
+        searchInput.value = '';  // Clear search
         searchInput.oninput = () => renderPairSelectorContent(searchInput.value);
+        searchInput.focus();  // Focus on search input
     }
 }
 
@@ -529,9 +550,19 @@ function renderPairSelectorContent(filter = '') {
     const content = document.getElementById('pairSelectorContent');
     if (!content) return;
 
+    if (allAvailableAssets.length === 0) {
+        content.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">📡 Loading assets...</div>';
+        return;
+    }
+
     const filteredAssets = allAvailableAssets.filter(asset =>
         asset.toLowerCase().includes(filter.toLowerCase())
     );
+
+    if (filteredAssets.length === 0) {
+        content.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">No pairs found</div>';
+        return;
+    }
 
     content.innerHTML = filteredAssets.map(asset => `
         <div class="pair-selector-item ${selectedPairs.includes(asset) ? 'selected' : ''}"
