@@ -12,6 +12,10 @@ Quotex Pro Trader — EEL + ASYNCIO STABLE v3.3 (COUNTDOWN FIX)
 ✅ [جديد] candle_start_time ثابت في الـ payload — JS يحسب countdown محلياً
 ✅ [جديد] asyncio.sleep(0.05) بدل 0.2 — أقل jitter
 """
+import warnings
+warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+
 import asyncio
 import threading
 import time
