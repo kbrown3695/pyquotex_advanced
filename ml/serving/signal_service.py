@@ -1,7 +1,12 @@
 """ML signal service — integrates models, registry, and aggregation."""
 
 from typing import Dict, Any, Optional
+import warnings
 import numpy as np
+
+# Suppress sklearn joblib warnings (they're noisy but harmless)
+warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.utils.parallel")
 
 from ml.registry.model_registry import ModelRegistry
 from ml.features.feature_pipeline import FeaturePipeline

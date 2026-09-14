@@ -1,7 +1,13 @@
 """Directional classifier model for UP/DOWN prediction."""
 
 from typing import Dict, Any, Optional
+import warnings
 import numpy as np
+
+# Suppress sklearn joblib warnings
+warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC

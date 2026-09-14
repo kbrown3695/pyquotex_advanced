@@ -14,10 +14,13 @@ import numpy as np
 
 from ml.models.base import BaseTradingModel
 
-# Suppress xgboost and lightgbm warnings
+# Suppress xgboost, lightgbm, and sklearn joblib warnings
 logging.getLogger("xgboost").setLevel(logging.ERROR)
 logging.getLogger("lightgbm").setLevel(logging.ERROR)
+logging.getLogger("sklearn").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
+warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 
 def _import_xgb() -> Any:
