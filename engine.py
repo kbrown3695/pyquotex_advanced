@@ -231,10 +231,9 @@ ASSET_CATEGORIES = {
 ASSETS_LIST = list(ASSET_DISPLAY_MAP.values())
 
 TIMEFRAMES = {
-    "5s": 5, "10s": 10, "15s": 15, "30s": 30,
     "1m": 60, "2m": 120, "3m": 180, "5m": 300,
     "10m": 600, "15m": 900, "30m": 1800,
-    "1h": 3600, "4h": 14400
+    "1h": 3600
 }
 
 CLIENT: Optional[Quotex] = None

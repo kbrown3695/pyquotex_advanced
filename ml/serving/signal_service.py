@@ -3,6 +3,7 @@
 from typing import Dict, Any, Optional
 import warnings
 import numpy as np
+from sklearn.model_selection import cross_val_score
 
 # Suppress sklearn joblib warnings (they're noisy but harmless)
 warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.*")
@@ -213,6 +214,7 @@ class MLSignalService:
 			if common_size > 10:
 				y_volatility = y_volatility[-common_size:]
 				X_trimmed = X[-common_size:]
+				print(f"[volatility] Training with {common_size} samples (y shape: {y_volatility.shape}, X shape: {X_trimmed.shape})", flush=True)
 				vol_model.train(X_trimmed, y_volatility)
 				self.registry.save_and_activate(
 					vol_model, asset, timeframe,
@@ -221,11 +223,16 @@ class MLSignalService:
 					model_key="volatility",
 				)
 				models_trained.append("volatility")
+				print(f"[volatility] ✅ Training complete", flush=True)
 			else:
-				results["volatility_error"] = f"Insufficient data: min(y_volatility={len(y_volatility)}, X={len(X)}) = {common_size}"
+				error_msg = f"Insufficient data: min(y_volatility={len(y_volatility)}, X={len(X)}) = {common_size}"
+				results["volatility_error"] = error_msg
+				print(f"[volatility] ⚠️ {error_msg}", flush=True)
 		except Exception as e:
+			import traceback
 			results["volatility_error"] = str(e)
-			print(f"[volatility] Training error: {e}")
+			print(f"[volatility] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
 
 		# Phase B: Train QuantileModel (lightgbm) - upper quantile
 		try:
@@ -237,6 +244,7 @@ class MLSignalService:
 				X_trimmed = X[-common_size:]
 				quantile_model = QuantileModel(quantile=0.75)
 				quantile_model.set_feature_names(feature_names)
+				print(f"[quantile_upper] Training with {common_size} samples (y shape: {y_return.shape}, X shape: {X_trimmed.shape})", flush=True)
 				quantile_model.train(X_trimmed, y_return)
 				self.registry.save_and_activate(
 					quantile_model, asset, timeframe,
@@ -245,9 +253,16 @@ class MLSignalService:
 					model_key="quantile_upper",
 				)
 				models_trained.append("quantile_upper")
+				print(f"[quantile_upper] ✅ Training complete", flush=True)
+			else:
+				error_msg = f"Insufficient data: min(y_return={len(y_return)}, X={len(X)}) = {common_size}"
+				results["quantile_upper_error"] = error_msg
+				print(f"[quantile_upper] ⚠️ {error_msg}", flush=True)
 		except Exception as e:
+			import traceback
 			results["quantile_upper_error"] = str(e)
-			print(f"[quantile_upper] Training error: {e}")
+			print(f"[quantile_upper] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
 
 		# Phase B: Train QuantileModel (lightgbm) - lower quantile
 		try:
@@ -259,6 +274,7 @@ class MLSignalService:
 				X_trimmed = X[-common_size:]
 				quantile_model = QuantileModel(quantile=0.25)
 				quantile_model.set_feature_names(feature_names)
+				print(f"[quantile_lower] Training with {common_size} samples (y shape: {y_return.shape}, X shape: {X_trimmed.shape})", flush=True)
 				quantile_model.train(X_trimmed, y_return)
 				self.registry.save_and_activate(
 					quantile_model, asset, timeframe,
@@ -267,8 +283,16 @@ class MLSignalService:
 					model_key="quantile_lower",
 				)
 				models_trained.append("quantile_lower")
+				print(f"[quantile_lower] ✅ Training complete", flush=True)
+			else:
+				error_msg = f"Insufficient data: min(y_return={len(y_return)}, X={len(X)}) = {common_size}"
+				results["quantile_lower_error"] = error_msg
+				print(f"[quantile_lower] ⚠️ {error_msg}", flush=True)
 		except Exception as e:
+			import traceback
 			results["quantile_lower_error"] = str(e)
+			print(f"[quantile_lower] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
 
 		# Aggregate feature importances from models that have them
 		feature_importances = {}
@@ -288,9 +312,29 @@ class MLSignalService:
 			total = sum(feature_importances.values()) or 1.0
 			feature_importances = {k: v / total for k, v in feature_importances.items()}
 
+		# Compute cross-validation accuracy for the ensemble model
+		accuracy = None
+		if "ensemble" in models_trained:
+			try:
+				ensemble_model = self.registry.get_active_model(
+					asset, timeframe, model_key="ensemble"
+				)
+				if ensemble_model and hasattr(ensemble_model, "model"):
+					# Use 5-fold cross-validation on training data
+					scores = cross_val_score(
+						ensemble_model.model,
+						X, y,
+						cv=min(5, len(X) // 10),
+						scoring="accuracy",
+						n_jobs=-1,
+					)
+					accuracy = float(np.mean(scores))
+			except Exception:
+				accuracy = None
+
 		return {
 			"status": "trained",
-			"accuracy": 0.5,  # Placeholder; real accuracy would come from validation
+			"accuracy": accuracy,
 			"samples": len(X),
 			"features": len(feature_names),
 			"feature_importance": feature_importances,

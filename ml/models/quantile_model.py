@@ -57,7 +57,7 @@ class QuantileModel(BaseTradingModel):
             X: Feature matrix (n_samples, n_features)
             y: Target values (n_samples,) - typically next-period returns
         """
-        self.model.fit(X, y, verbose=-1)
+        self.model.fit(X, y)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict quantile values."""
