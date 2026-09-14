@@ -256,7 +256,7 @@ html, body {
 }
 
 .signal-pair-tabs {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px;
     margin-bottom: 16px;
 }
 

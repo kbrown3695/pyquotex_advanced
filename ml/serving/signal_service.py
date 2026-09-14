@@ -128,7 +128,12 @@ class MLSignalService:
 			er = ExpectedReturnModel(algorithm="random_forest")
 			er.set_feature_names(feature_names)
 			# For expected return, use continuous labels (e.g., next return %)
-			y_return = np.diff(np.array([c["close"] for c in candles]))[:-1]
+			# Calculate returns in same shape as X (which comes from feature pipeline)
+			closes = np.array([c["close"] for c in candles])
+			# Returns: (next_close - current_close) / current_close * 100
+			y_return = np.diff(closes) / closes[:-1] * 100  # % returns
+			# Trim to match X size (feature extraction may remove first/last rows)
+			y_return = y_return[-(len(X)):]
 			if len(y_return) == len(X):
 				er.train(X, y_return)
 				self.registry.save_and_activate(
@@ -177,7 +182,10 @@ class MLSignalService:
 		try:
 			gbr = GradientBoostingReturnModel(algorithm="xgboost")
 			gbr.set_feature_names(feature_names)
-			y_return = np.diff(np.array([c["close"] for c in candles]))[:-1]
+			# Calculate returns with same shape alignment as X
+			closes = np.array([c["close"] for c in candles])
+			y_return = np.diff(closes) / closes[:-1] * 100  # % returns
+			y_return = y_return[-(len(X)):]  # Trim to match X
 			if len(y_return) == len(X):
 				gbr.train(X, y_return)
 				self.registry.save_and_activate(
@@ -194,33 +202,36 @@ class MLSignalService:
 		try:
 			vol_model = VolatilityModel()
 			vol_model.set_feature_names(feature_names)
-			# Use ATR from the last feature (atr_14) as volatility target
-			y_volatility = np.full(len(X), 0.01)  # Placeholder
-			try:
-				# Try to use actual ATR values from feature pipeline
-				from ml.features.indicators import calculate_atr
-				closes = np.array([c["close"] for c in candles])
-				highs = np.array([c["high"] for c in candles])
-				lows = np.array([c["low"] for c in candles])
-				y_volatility = calculate_atr(highs, lows, closes, period=14)[:-1]
-				if len(y_volatility) != len(X):
-					y_volatility = np.full(len(X), 0.01)
-			except Exception:
-				pass
-			vol_model.train(X, y_volatility)
-			self.registry.save_and_activate(
-				vol_model, asset, timeframe,
-				metrics={"status": "trained", "samples": len(X)},
-				algorithm="volatility",
-				model_key="volatility",
-			)
-			models_trained.append("volatility")
+			# Use range (high-low) as volatility proxy, aligned to X
+			highs = np.array([c["high"] for c in candles])
+			lows = np.array([c["low"] for c in candles])
+
+			# Range = high - low (volatility measure)
+			y_volatility = highs - lows
+			# Trim to match X size
+			y_volatility = y_volatility[-(len(X)):]
+
+			if len(y_volatility) == len(X) and len(y_volatility) > 0:
+				vol_model.train(X, y_volatility)
+				self.registry.save_and_activate(
+					vol_model, asset, timeframe,
+					metrics={"status": "trained", "samples": len(X)},
+					algorithm="volatility",
+					model_key="volatility",
+				)
+				models_trained.append("volatility")
+			else:
+				results["volatility_error"] = f"Size mismatch: y_volatility ({len(y_volatility)}) vs X ({len(X)})"
 		except Exception as e:
 			results["volatility_error"] = str(e)
+			print(f"[volatility] Training error: {e}")
 
 		# Phase B: Train QuantileModel (lightgbm) - upper quantile
 		try:
-			y_return = np.diff(np.array([c["close"] for c in candles]))[:-1]
+			# Calculate returns with same shape alignment as X
+			closes = np.array([c["close"] for c in candles])
+			y_return = np.diff(closes) / closes[:-1] * 100  # % returns
+			y_return = y_return[-(len(X)):]  # Trim to match X
 			if len(y_return) == len(X):
 				quantile_model = QuantileModel(quantile=0.75)
 				quantile_model.set_feature_names(feature_names)
@@ -232,12 +243,18 @@ class MLSignalService:
 					model_key="quantile_upper",
 				)
 				models_trained.append("quantile_upper")
+			else:
+				results["quantile_upper_error"] = f"Size mismatch: y_return ({len(y_return)}) vs X ({len(X)})"
 		except Exception as e:
 			results["quantile_upper_error"] = str(e)
+			print(f"[quantile_upper] Training error: {e}")
 
 		# Phase B: Train QuantileModel (lightgbm) - lower quantile
 		try:
-			y_return = np.diff(np.array([c["close"] for c in candles]))[:-1]
+			# Calculate returns with same shape alignment as X
+			closes = np.array([c["close"] for c in candles])
+			y_return = np.diff(closes) / closes[:-1] * 100  # % returns
+			y_return = y_return[-(len(X)):]  # Trim to match X
 			if len(y_return) == len(X):
 				quantile_model = QuantileModel(quantile=0.25)
 				quantile_model.set_feature_names(feature_names)
@@ -249,8 +266,11 @@ class MLSignalService:
 					model_key="quantile_lower",
 				)
 				models_trained.append("quantile_lower")
+			else:
+				results["quantile_lower_error"] = f"Size mismatch: y_return ({len(y_return)}) vs X ({len(X)})"
 		except Exception as e:
 			results["quantile_lower_error"] = str(e)
+			print(f"[quantile_lower] Training error: {e}")
 
 		# Aggregate feature importances from models that have them
 		feature_importances = {}

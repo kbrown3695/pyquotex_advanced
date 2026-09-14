@@ -37,9 +37,9 @@ QUOTEX_EMAIL = os.getenv("QUOTEX_EMAIL")
 QUOTEX_PASSWORD = os.getenv("QUOTEX_PASSWORD")
 
 if QUOTEX_EMAIL and QUOTEX_PASSWORD:
-    print(f"✅ .env loaded: {QUOTEX_EMAIL}")
+    print(f"[OK] .env loaded: {QUOTEX_EMAIL}")
 else:
-    print("⚠️ No .env credentials found")
+    print("[WARN] No .env credentials found")
 
 # ✅ SSL Setup
 os.environ['SSL_CERT_FILE'] = certifi.where()
@@ -264,6 +264,48 @@ BACKGROUND_LOADER_TASK = None
 # ======================
 CANDLE_STORE = CandleStore("quotex_candles.db") if CandleStore else None
 # SIGNAL_MANAGER already initialized at module load (line ~140)
+
+# Default pairs for multi-asset signal generation
+DEFAULT_SIGNAL_PAIRS = ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "USD/INR (OTC)"]
+SELECTED_PAIRS_FILE = "selected_signal_pairs.json"
+
+def load_selected_pairs() -> List[str]:
+    """Load previously selected signal pairs from file."""
+    try:
+        abs_path = os.path.abspath(SELECTED_PAIRS_FILE)
+        print(f"🔍 Looking for pairs file at: {abs_path}")
+
+        if os.path.exists(SELECTED_PAIRS_FILE):
+            with open(SELECTED_PAIRS_FILE, 'r', encoding='utf-8') as f:
+                pairs = json.load(f)
+                if isinstance(pairs, list) and pairs:
+                    print(f"✅ Loaded {len(pairs)} saved signal pairs: {pairs}")
+                    return pairs
+                else:
+                    print(f"⚠️ File exists but is empty or invalid JSON")
+        else:
+            print(f"⚠️ File not found: {abs_path}")
+    except Exception as e:
+        print(f"⚠️ Failed to load selected pairs: {e}")
+        import traceback
+        traceback.print_exc()
+    print(f"ℹ️ Using default {len(DEFAULT_SIGNAL_PAIRS)} pairs: {DEFAULT_SIGNAL_PAIRS}")
+    return DEFAULT_SIGNAL_PAIRS
+
+def save_selected_pairs(pairs: List[str]) -> bool:
+    """Save selected signal pairs to file."""
+    try:
+        with open(SELECTED_PAIRS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(pairs, f, indent=2)
+        print(f"✅ Saved {len(pairs)} signal pairs to {SELECTED_PAIRS_FILE}: {pairs}")
+        log(f"✅ Saved {len(pairs)} signal pairs", 2)
+        return True
+    except Exception as e:
+        print(f"❌ Failed to save selected pairs: {e}")
+        log(f"⚠️ Failed to save selected pairs: {e}", 2)
+        return False
+
+SIGNAL_PAIRS = load_selected_pairs()
 
 # ======================
 # Helpers & Reconnection
@@ -695,8 +737,10 @@ async def realtime_price_loop(asset_display: str):
                     with STATE_LOCK:
                         active = asset_display == CURRENT_ASSET
                         frame = CURRENT_TIMEFRAME
+                    # Always update candles (not just for active asset) so background pairs accumulate data
+                    update_candle(asset_display, frame, price, ts)
+                    # Only send UI updates for the active/viewed asset
                     if active:
-                        update_candle(asset_display, frame, price, ts)
                         send_to_ui(asset_display, frame)
                     errs = 0
                     consecutive_empty = 0
@@ -770,9 +814,9 @@ async def chart_opened_loader(asset: str):
     ACTIVE_TASKS[asset] = task
     BACKGROUND_LOADER_TASK = asyncio.create_task(smart_background_loader(asset))
 
-    # Phase B: Pre-load candles from database for all 4 pairs, then start signal generation
-    global CANDLES, CANDLE_STORE
-    for pair_display in ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"]:
+    # Phase B: Pre-load candles from database for all saved pairs, then start signal generation
+    global CANDLES, CANDLE_STORE, SIGNAL_PAIRS
+    for pair_display in SIGNAL_PAIRS:
         if pair_display not in CANDLES or "1m" not in CANDLES[pair_display]:
             if CANDLE_STORE:
                 try:
@@ -784,20 +828,45 @@ async def chart_opened_loader(asset: str):
                 except Exception:
                     pass
 
-    log("🔗 Starting signal generation for all 4 pairs in parallel...", 2)
-    for pair_display in ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"]:
+    log(f"🔗 Starting signal generation for {len(SIGNAL_PAIRS)} pairs in parallel...", 2)
+
+    # Start signal generation for all pairs FIRST (they'll wait for candles)
+    for pair_display in SIGNAL_PAIRS:
         _start_signal_generation(pair_display, "1m")
 
-    # Phase B: Start background streaming for other 3 pairs so they accumulate candles
-    async def load_other_pairs():
-        other_pairs = ["EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"]
-        for pair in other_pairs:
+    # Start background polling for non-active pairs to accumulate candles
+    async def poll_background_pairs():
+        """Periodically fetch candles for background pairs to feed signal generation."""
+        while True:
             try:
-                await load_timeframe_data(pair, "1m", 60)
-            except Exception:
-                pass
+                await asyncio.sleep(30)  # Poll every 30 seconds
+                for pair in SIGNAL_PAIRS:
+                    if pair == CURRENT_ASSET:
+                        continue  # Skip the active asset (uses realtime)
+                    try:
+                        internal = DISPLAY_TO_INTERNAL.get(pair)
+                        if internal:
+                            # Fetch last 50 candles to backfill
+                            candles = await CLIENT.get_candles(internal, time.time(), 50*60, 60)
+                            if candles:
+                                processed = process_candle_data(candles, 60)
+                                if processed:
+                                    if pair not in CANDLES:
+                                        CANDLES[pair] = {}
+                                    CANDLES[pair]["1m"] = processed[-200:]
+                                    if CANDLE_STORE:
+                                        for c in processed:
+                                            CANDLE_STORE.save_candle(pair, "1m", c)
+                                    log(f"📊 Backfilled {len(processed)} candles for {pair}", 2)
+                    except Exception as e:
+                        log(f"⚠️ Failed to poll {pair}: {e}", 2)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log(f"⚠️ Background polling error: {e}", 2)
+                await asyncio.sleep(10)
 
-    asyncio.create_task(load_other_pairs())
+    start_background_task("poll_background_pairs", poll_background_pairs())
 
 async def smart_background_loader(asset: str):
     for tf in ["5m", "15m", "30m", "1h", "10s", "30s", "2m", "3m", "10m", "4h", "5s", "15s"]:
@@ -1145,6 +1214,65 @@ async def _get_ml_signal_async():
 # Global cache for ML results
 ML_TRAINING_RESULT = None
 LAST_ML_SIGNAL = None
+ML_MODELS_FILE = "ml_signals_model.json"
+
+def save_ml_models(training_result: Dict) -> bool:
+    """Save trained ML models to persistent storage with detailed status."""
+    try:
+        # Extract models status from result
+        models_trained = training_result.get('models_trained', [])
+        model_errors = {k: v for k, v in training_result.items() if k.endswith('_error')}
+
+        # Build detailed model status
+        model_status = {}
+        all_models = [
+            'ensemble', 'kalman', 'expected_return', 'probability',  # Phase A
+            'gradient_boosting_directional', 'gradient_boosting_return',  # Phase B
+            'volatility', 'quantile_upper', 'quantile_lower'  # Phase B
+        ]
+
+        for model in all_models:
+            if model in models_trained:
+                model_status[model] = "✅ trained"
+            elif f"{model}_error" in training_result:
+                model_status[model] = f"❌ {training_result[f'{model}_error'][:50]}"
+            else:
+                model_status[model] = "❌ not trained"
+
+        model_data = {
+            "timestamp": time.time(),
+            "training_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "result": training_result,
+            "model_status": model_status,
+            "summary": {
+                "total_models": len(all_models),
+                "trained": len(models_trained),
+                "failed": len(model_errors)
+            }
+        }
+
+        with open(ML_MODELS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(model_data, f, indent=2)
+
+        print(f"✅ Saved ML models: {len(models_trained)}/{len(all_models)} trained")
+        for model, status in model_status.items():
+            print(f"  {status}: {model}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to save ML models: {e}")
+        return False
+
+def load_ml_models() -> Dict:
+    """Load trained ML models from persistent storage."""
+    try:
+        if os.path.exists(ML_MODELS_FILE):
+            with open(ML_MODELS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                print(f"✅ Loaded ML models from {ML_MODELS_FILE} (trained: {data.get('training_date')})")
+                return data.get('result', {})
+    except Exception as e:
+        print(f"⚠️ Failed to load ML models: {e}")
+    return {}
 
 @eel.expose
 def train_ml_signals():
@@ -1159,6 +1287,10 @@ def train_ml_signals():
             )
             ML_TRAINING_RESULT = fut.result(timeout=120)
             log(f"🤖 ML training cached: {ML_TRAINING_RESULT.get('accuracy', 'N/A')}", 1)
+
+            # Save trained models to file
+            if 'error' not in ML_TRAINING_RESULT:
+                save_ml_models(ML_TRAINING_RESULT)
         except Exception as e:
             log(f"❌ Async training error: {e}", 1)
             ML_TRAINING_RESULT = {'error': str(e)}
@@ -1202,6 +1334,23 @@ def get_last_ml_signal():
         LAST_ML_SIGNAL = None  # Clear after retrieval
         return signal
     return None
+
+@eel.expose
+def get_saved_ml_models():
+    """Get previously saved ML models from file."""
+    return load_ml_models()
+
+@eel.expose
+def clear_ml_models():
+    """Clear saved ML models."""
+    try:
+        if os.path.exists(ML_MODELS_FILE):
+            os.remove(ML_MODELS_FILE)
+            log(f"✅ Cleared ML models file", 1)
+            return {"success": True, "message": "ML models cleared"}
+    except Exception as e:
+        log(f"⚠️ Failed to clear ML models: {e}", 1)
+        return {"success": False, "error": str(e)}
 
 # ======================
 # Phase B: Multi-Asset Signal Management
@@ -1298,6 +1447,7 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
     """Start signal generation for a specific asset (user enabled).
 
     Automatically loads initial candles from database or WebSocket stream.
+    Persists the pair to the saved list ONLY if added by user (not during startup).
 
     Args:
         asset: Asset symbol
@@ -1306,7 +1456,7 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
     Returns:
         Success status dict
     """
-    global SIGNAL_MANAGER, CANDLE_STORE, ASYNC_LOOP, CURRENT_TIMEFRAME
+    global SIGNAL_MANAGER, CANDLE_STORE, ASYNC_LOOP, CURRENT_TIMEFRAME, SIGNAL_PAIRS
     if not SIGNAL_MANAGER:
         return {"success": False, "error": "SIGNAL_MANAGER not initialized"}
 
@@ -1350,6 +1500,16 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
 
         asyncio.run_coroutine_threadsafe(subscribe_to_realtime(), ASYNC_LOOP)
 
+        # Add to signal pairs list and persist ONLY on user action (not during startup)
+        # Check if this is a user-initiated call (via UI) vs auto-startup call
+        if asset not in SIGNAL_PAIRS:
+            SIGNAL_PAIRS.append(asset)
+            # Only save if it's not during the initial chart_opened_loader startup
+            # (startup signals are loaded from file, not auto-saved)
+            if CHART_OPENED:  # True only after initial load
+                save_selected_pairs(SIGNAL_PAIRS)
+                log(f"💾 Saved {asset} to signal pairs", 2)
+
         return {"success": True, "asset": asset, "timeframe": timeframe}
     except Exception as e:
         log(f"❌ Failed to start signals for {asset}: {e}", 1)
@@ -1359,6 +1519,8 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
 def stop_signals_for_asset(asset: str, timeframe: str = "1m"):
     """Stop signal generation for a specific asset (user disabled).
 
+    Removes the pair from the saved list ONLY on user action (not during startup).
+
     Args:
         asset: Asset symbol
         timeframe: Timeframe (default "1m")
@@ -1366,17 +1528,68 @@ def stop_signals_for_asset(asset: str, timeframe: str = "1m"):
     Returns:
         Success status dict
     """
-    global SIGNAL_MANAGER
+    global SIGNAL_MANAGER, SIGNAL_PAIRS
     if not SIGNAL_MANAGER:
         return {"success": False, "error": "SIGNAL_MANAGER not initialized"}
 
     try:
         SIGNAL_MANAGER.remove_asset(asset, timeframe)
         log(f"⏹️ Stopped signal generation for {asset} {timeframe}", 1)
+
+        # Remove from signal pairs list and persist ONLY on user action
+        if asset in SIGNAL_PAIRS:
+            SIGNAL_PAIRS.remove(asset)
+            # Only save if it's not during startup
+            if CHART_OPENED:  # True only after initial load
+                save_selected_pairs(SIGNAL_PAIRS)
+                log(f"💾 Removed {asset} from signal pairs", 2)
+
         return {"success": True, "asset": asset, "timeframe": timeframe}
     except Exception as e:
         log(f"❌ Failed to stop signals for {asset}: {e}", 1)
         return {"success": False, "error": str(e)}
+
+@eel.expose
+def get_signal_pairs():
+    """Get list of pairs currently configured for signal generation.
+
+    Returns:
+        List of asset symbols
+    """
+    global SIGNAL_PAIRS
+    return SIGNAL_PAIRS
+
+@eel.expose
+def set_signal_pairs(pairs: List[str]):
+    """Set which pairs to generate signals for and persist to storage.
+
+    Args:
+        pairs: List of asset symbols (e.g. ["AUD/CAD (OTC)", "EUR/USD (OTC)"])
+
+    Returns:
+        Success status dict
+    """
+    global SIGNAL_PAIRS
+    if not pairs or not isinstance(pairs, list):
+        return {"success": False, "error": "Invalid pairs list"}
+
+    # Validate all pairs exist
+    valid_pairs = []
+    for pair in pairs:
+        if pair in ASSET_DISPLAY_MAP.values():
+            valid_pairs.append(pair)
+        else:
+            log(f"⚠️ Invalid asset pair: {pair}", 1)
+
+    if not valid_pairs:
+        return {"success": False, "error": "No valid pairs provided"}
+
+    SIGNAL_PAIRS = valid_pairs
+    if save_selected_pairs(valid_pairs):
+        log(f"✅ Signal pairs updated: {valid_pairs}", 1)
+        return {"success": True, "pairs": valid_pairs}
+    else:
+        return {"success": False, "error": "Failed to save pairs"}
 
 @eel.expose
 def get_signal_status():
@@ -1385,13 +1598,14 @@ def get_signal_status():
     Returns:
         Dict with signal manager status and active threads
     """
-    global SIGNAL_MANAGER, ML_SERVICE, CANDLE_STORE
+    global SIGNAL_MANAGER, ML_SERVICE, CANDLE_STORE, SIGNAL_PAIRS
     status = {
         "ml_service_ready": ML_SERVICE is not None,
         "signal_manager_ready": SIGNAL_MANAGER is not None,
         "candle_store_ready": CANDLE_STORE is not None,
         "current_asset": CURRENT_ASSET,
         "current_timeframe": CURRENT_TIMEFRAME,
+        "signal_pairs": SIGNAL_PAIRS,
     }
 
     if SIGNAL_MANAGER:

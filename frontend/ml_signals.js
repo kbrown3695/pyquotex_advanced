@@ -22,9 +22,22 @@ const MLSignals = {
     async init() {
         console.log('🤖 ML Signals module initialized');
 
-        // Restore saved pair preferences from session
-        loadPairPreferences();
-        renderPairTabs();
+        // Restore saved pair preferences from backend first, then localStorage fallback
+        if (window.eel) {
+            eel.get_signal_pairs()(pairs => {
+                if (pairs && Array.isArray(pairs) && pairs.length > 0) {
+                    selectedPairs = pairs;
+                    console.log(`✅ Loaded ${pairs.length} signal pairs from backend:`, pairs);
+                } else {
+                    console.warn('⚠️ No pairs from backend, using localStorage or defaults');
+                    loadPairPreferences();
+                }
+                renderPairTabs();
+            });
+        } else {
+            loadPairPreferences();
+            renderPairTabs();
+        }
 
         // Start signal generation for all restored pairs
         selectedPairs.forEach(pair => {
@@ -271,8 +284,21 @@ function openSignalPairs() {
     console.log("🔓 openSignalPairs() called");
     const panel = document.getElementById('signal-pairs-panel');
     if (panel) {
-        loadPairPreferences();
-        renderPairTabs();
+        // Fetch pairs from backend
+        if (window.eel) {
+            eel.get_signal_pairs()(pairs => {
+                if (pairs && Array.isArray(pairs) && pairs.length > 0) {
+                    selectedPairs = pairs;
+                    console.log(`✅ Refreshed ${pairs.length} signal pairs from backend`);
+                } else {
+                    loadPairPreferences();
+                }
+                renderPairTabs();
+            });
+        } else {
+            loadPairPreferences();
+            renderPairTabs();
+        }
         panel.style.display = 'block';
         console.log("📊 Panel displayed, starting polling...");
         if (selectedPairs.length > 0 && !currentSignalPair) {

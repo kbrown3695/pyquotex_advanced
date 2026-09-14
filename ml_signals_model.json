@@ -1,22 +1,35 @@
 {
-  "type": "RandomForest",
-  "feature_names": [
-    "atr_14",
-    "body",
-    "ema_12",
-    "ema_26",
-    "lower_wick",
-    "macd_hist",
-    "macd_line",
-    "macd_signal",
-    "range",
-    "rsi_14",
-    "sma_10",
-    "sma_20",
-    "sma_50",
-    "upper_wick"
-  ],
-  "n_estimators": 50,
-  "trained_at": "2026-09-11T16:24:20.087169",
-  "accuracy": 0.4
+  "timestamp": 1789418573.9176133,
+  "training_date": "2026-09-14 23:42:53",
+  "result": {
+    "status": "trained",
+    "accuracy": 0.5,
+    "samples": 199,
+    "features": 13,
+    "feature_importance": {},
+    "models_trained": [
+      "ensemble",
+      "kalman",
+      "expected_return",
+      "probability",
+      "gradient_boosting_directional",
+      "gradient_boosting_return"
+    ]
+  },
+  "model_status": {
+    "ensemble": "\u2705 trained",
+    "kalman": "\u2705 trained",
+    "expected_return": "\u2705 trained",
+    "probability": "\u2705 trained",
+    "gradient_boosting_directional": "\u2705 trained",
+    "gradient_boosting_return": "\u2705 trained",
+    "volatility": "\u274c not trained",
+    "quantile_upper": "\u274c not trained",
+    "quantile_lower": "\u274c not trained"
+  },
+  "summary": {
+    "total_models": 9,
+    "trained": 6,
+    "failed": 0
+  }
 }
