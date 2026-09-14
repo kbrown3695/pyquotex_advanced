@@ -22,6 +22,16 @@ const MLSignals = {
     async init() {
         console.log('🤖 ML Signals module initialized');
 
+        // Restore saved pair preferences from session
+        loadPairPreferences();
+        renderPairTabs();
+
+        // Start signal generation for all restored pairs
+        selectedPairs.forEach(pair => {
+            console.log(`🔄 Re-initializing signals for ${pair}...`);
+            startSignalsForPair(pair);
+        });
+
         // Load available assets for pair selector (in background)
         if (window.eel) {
             eel.get_available_assets()(assets => {
