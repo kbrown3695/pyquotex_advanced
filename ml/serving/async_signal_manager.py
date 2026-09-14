@@ -108,17 +108,26 @@ class AsyncSignalManager:
         stop_event = self.stop_signals[key]
         error_count = 0
         max_errors = 5
+        iteration = 0
 
         while not stop_event.is_set():
+            iteration += 1
             try:
                 candles = get_candles_fn()
+                candle_count = len(candles) if candles else 0
+
                 if not candles:
-                    # Not ready yet
-                    pass
+                    # Not ready yet - log every 10 iterations
+                    if iteration % 10 == 0:
+                        import sys
+                        print(f"[{asset} {timeframe}] No candles available", file=sys.stderr)
                 elif len(candles) < 26:
-                    # Not enough candles yet
-                    pass
+                    # Not enough candles yet - log every 10 iterations
+                    if iteration % 10 == 0:
+                        import sys
+                        print(f"[{asset} {timeframe}] Only {candle_count} candles (need 26)", file=sys.stderr)
                 else:
+                    # Try to generate signal
                     signal = self.ml_service.generate_signal(asset, timeframe, candles)
                     if signal:
                         with self._lock:
@@ -128,15 +137,22 @@ class AsyncSignalManager:
                                 asset=asset,
                                 timeframe=timeframe,
                             )
+                        import sys
+                        print(f"[{asset} {timeframe}] Signal cached: {signal.side} @ {signal.confidence:.2f}", file=sys.stderr)
                         error_count = 0  # Reset error count on success
+                    else:
+                        if iteration % 10 == 0:
+                            import sys
+                            print(f"[{asset} {timeframe}] ML returned None (models not trained)", file=sys.stderr)
             except Exception as e:
                 error_count += 1
-                if error_count <= max_errors:
-                    # Log first few errors only
-                    import sys
-                    print(f"[AsyncSignalManager] Signal error for {asset}: {type(e).__name__}", file=sys.stderr)
+                import sys
+                import traceback
+                print(f"[{asset} {timeframe}] Signal error #{error_count}: {type(e).__name__}: {e}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
                 if error_count > max_errors:
                     # Stop trying after too many errors
+                    print(f"[{asset} {timeframe}] Too many errors, stopping signal generation", file=sys.stderr)
                     break
 
             # Sleep until next interval or stop signal

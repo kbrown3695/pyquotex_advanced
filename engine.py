@@ -1158,9 +1158,17 @@ def get_signal_for_asset(asset: str, timeframe: str = "1m"):
         Signal dict or None if not available
     """
     global SIGNAL_MANAGER
-    if SIGNAL_MANAGER:
-        return SIGNAL_MANAGER.get_signal(asset, timeframe)
-    return None
+    if not SIGNAL_MANAGER:
+        log(f"⚠️ get_signal_for_asset called but SIGNAL_MANAGER is None", 2)
+        return None
+
+    signal = SIGNAL_MANAGER.get_signal(asset, timeframe)
+    if not signal and SIGNAL_MANAGER:
+        # Debug: show cache status
+        key = f"{asset}_{timeframe}"
+        cached = key in SIGNAL_MANAGER.signal_cache
+        log(f"⚠️ get_signal_for_asset({asset}): no signal (cached={cached}, total_cached={len(SIGNAL_MANAGER.signal_cache)})", 2)
+    return signal
 
 @eel.expose
 def get_all_asset_signals():
