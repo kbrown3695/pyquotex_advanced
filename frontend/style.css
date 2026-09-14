@@ -236,6 +236,83 @@ html, body {
 .sp-btn.cancel { background: transparent; color: #64748b; border-color: rgba(100, 116, 139, 0.3); }
 .sp-btn.cancel:hover { color: #cbd5e1; border-color: #cbd5e1; }
 
+/* 🔹 Signal Pairs Panel (Phase B) */
+#signal-pairs-panel {
+    position: absolute; top: 45px; right: 16px;
+    width: 420px;
+    background: linear-gradient(180deg, #0f172a 0%, #0a0f1c 100%);
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(59, 130, 246, 0.1);
+    z-index: 200;
+    display: none;
+    font-family: 'Cormorant Garamond', serif;
+    color: #93c5fd;
+    backdrop-filter: blur(5px);
+}
+
+.signal-pairs-content {
+    padding: 16px;
+}
+
+.signal-pair-tabs {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin-bottom: 16px;
+}
+
+.signal-pair-tab {
+    padding: 10px 12px; border-radius: 4px;
+    background: rgba(30, 58, 138, 0.3);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #93c5fd; cursor: pointer;
+    font-family: 'Cinzel', serif; font-size: 11px; letter-spacing: 1px;
+    transition: all 0.2s;
+}
+
+.signal-pair-tab:hover {
+    background: rgba(30, 58, 138, 0.5);
+    border-color: #60a5fa;
+    color: #bfdbfe;
+}
+
+.signal-pair-tab.active {
+    background: linear-gradient(180deg, #1e40af 0%, #1e3a8a 100%);
+    border-color: #60a5fa;
+    color: #fff;
+    box-shadow: 0 0 12px rgba(96, 165, 250, 0.4);
+}
+
+.signal-pair-display {
+    background: rgba(30, 58, 138, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 6px;
+    padding: 16px;
+    min-height: 140px;
+    display: flex; flex-direction: column; justify-content: center;
+}
+
+.signal-pair-value {
+    font-size: 32px; font-weight: bold; margin: 8px 0;
+    font-family: 'Cinzel', serif;
+}
+
+.signal-pair-buy { color: #00C510; }
+.signal-pair-sell { color: #ff0000; }
+
+.signal-pair-confidence {
+    font-size: 14px; color: #60a5fa; margin-top: 8px;
+}
+
+.signal-pair-reason {
+    font-size: 12px; color: #93c5fd; margin-top: 12px; line-height: 1.4;
+}
+
+.signal-pair-components {
+    font-size: 11px; color: #64748b; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid rgba(59, 130, 246, 0.2);
+    max-height: 80px; overflow-y: auto;
+}
+
 /* 🔹 Scrollbars */
 .modal-content::-webkit-scrollbar { width: 6px; }
 .modal-content::-webkit-scrollbar-track { background: rgba(30, 58, 138, 0.1); border-radius: 3px; }

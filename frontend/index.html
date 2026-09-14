@@ -40,6 +40,10 @@
             Signals
             <span class="sig-badge" id="signalsBadge" style="display:none;">0</span>
         </div>
+        <div class="btn" id="multiSignalsBtn" onclick="openSignalPairs()" title="View multi-asset signals">
+            <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            Assets
+        </div>
         <div id="currentAsset">AUD/CAD (OTC)</div>
         <div id="currentTimeframe" class="btn active">1m</div>
         <div class="btn" id="settingsBtn">
@@ -115,6 +119,39 @@
                 <span>Time</span><span>Asset · TF · Indicator</span><span>Side</span><span>Conf</span><span>Reason</span>
             </div>
             <div class="modal-content" id="signalsList"></div>
+        </div>
+    </div>
+
+    <!-- 🔹 Signal Pairs Panel (Phase B) -->
+    <div id="signal-pairs-panel" style="display: none;">
+        <div class="sp-header">
+            <span class="sp-title">📊 Multi-Asset Signals (Phase B)</span>
+            <span class="sp-close" onclick="closeSignalPairs()">&#10005;</span>
+        </div>
+
+        <div class="signal-pairs-content">
+            <!-- Pair Tabs -->
+            <div class="signal-pair-tabs">
+                <button class="signal-pair-tab active" data-pair="AUD/CAD (OTC)" onclick="switchSignalPair('AUD/CAD (OTC)')">
+                    AUD/CAD
+                </button>
+                <button class="signal-pair-tab" data-pair="USD/PKR (OTC)" onclick="switchSignalPair('USD/PKR (OTC)')">
+                    USD/PKR
+                </button>
+                <button class="signal-pair-tab" data-pair="EUR/USD (OTC)" onclick="switchSignalPair('EUR/USD (OTC)')">
+                    EUR/USD
+                </button>
+                <button class="signal-pair-tab" data-pair="GBP/USD (OTC)" onclick="switchSignalPair('GBP/USD (OTC)')">
+                    GBP/USD
+                </button>
+            </div>
+
+            <!-- Signal Display -->
+            <div class="signal-pair-display" id="signalPairDisplay">
+                <div style="text-align: center; padding: 20px; color: #999;">
+                    Loading signals...
+                </div>
+            </div>
         </div>
     </div>
 

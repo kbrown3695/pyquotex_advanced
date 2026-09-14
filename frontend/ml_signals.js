@@ -231,6 +231,126 @@ const MLSignals = {
     }
 };
 
+// =============================================================================
+// 🔹 Phase B: Multi-Asset Signal Panel
+// =============================================================================
+
+let currentSignalPair = "AUD/CAD (OTC)";
+let signalPairPollInterval = null;
+
+/**
+ * Open the multi-asset signal panel (Phase B).
+ */
+function openSignalPairs() {
+    const panel = document.getElementById('signal-pairs-panel');
+    if (panel) {
+        panel.style.display = 'block';
+        startSignalPairPolling();
+    }
+}
+
+/**
+ * Close the multi-asset signal panel.
+ */
+function closeSignalPairs() {
+    const panel = document.getElementById('signal-pairs-panel');
+    if (panel) {
+        panel.style.display = 'none';
+        stopSignalPairPolling();
+    }
+}
+
+/**
+ * Switch to a different pair in the signal panel.
+ */
+function switchSignalPair(pair) {
+    currentSignalPair = pair;
+
+    // Update active tab
+    document.querySelectorAll('.signal-pair-tab').forEach(tab => {
+        if (tab.dataset.pair === pair) {
+            tab.classList.add('active');
+        } else {
+            tab.classList.remove('active');
+        }
+    });
+
+    // Update display
+    updateSignalPairDisplay();
+}
+
+/**
+ * Update the signal display for the current pair.
+ */
+function updateSignalPairDisplay() {
+    if (!currentSignalPair) return;
+
+    eel.get_signal_for_asset(currentSignalPair, "1m")(signal => {
+        const display = document.getElementById('signalPairDisplay');
+        if (!display) return;
+
+        if (signal) {
+            const buyColor = signal.side === 'BUY' ? '#00C510' : '#ff0000';
+            const sideClass = signal.side === 'BUY' ? 'signal-pair-buy' : 'signal-pair-sell';
+
+            // Format components
+            let componentsHTML = '';
+            if (signal.components) {
+                componentsHTML = '<div class="signal-pair-components"><strong>Components:</strong><br>';
+                for (const [key, value] of Object.entries(signal.components)) {
+                    if (typeof value === 'object' && value.p_up !== undefined) {
+                        componentsHTML += `${key}: ${(value.p_up * 100).toFixed(0)}% | `;
+                    } else if (typeof value === 'number') {
+                        componentsHTML += `${key}: ${value.toFixed(4)} | `;
+                    }
+                }
+                componentsHTML += '</div>';
+            }
+
+            display.innerHTML = `
+                <div style="text-align: center;">
+                    <div class="signal-pair-value ${sideClass}">
+                        ${signal.side}
+                    </div>
+                    <div class="signal-pair-confidence">
+                        Confidence: ${(signal.confidence * 100).toFixed(1)}%
+                    </div>
+                    <div class="signal-pair-reason">
+                        <strong>Reason:</strong> ${signal.reason}
+                    </div>
+                    ${componentsHTML}
+                </div>
+            `;
+        } else {
+            display.innerHTML = '<div style="text-align: center; color: #999;">Waiting for signal...</div>';
+        }
+    });
+}
+
+/**
+ * Start polling for signal updates (every 500ms).
+ */
+function startSignalPairPolling() {
+    if (signalPairPollInterval) return;
+
+    signalPairPollInterval = setInterval(() => {
+        updateSignalPairDisplay();
+    }, 500);
+
+    // Immediate update
+    updateSignalPairDisplay();
+}
+
+/**
+ * Stop polling for signal updates.
+ */
+function stopSignalPairPolling() {
+    if (signalPairPollInterval) {
+        clearInterval(signalPairPollInterval);
+        signalPairPollInterval = null;
+    }
+}
+
 // Auto-init on page load if eel is available
 document.addEventListener('DOMContentLoaded', () => {
     if (window.eel) {
