@@ -61,6 +61,18 @@ except ImportError as e:
     print(f"⚠️ ML signal service not available: {e}")
     MLSignalService = None
 
+try:
+    from ml.data.candle_store import CandleStore
+except ImportError as e:
+    print(f"⚠️ Candle store not available: {e}")
+    CandleStore = None
+
+try:
+    from ml.serving.async_signal_manager import AsyncSignalManager
+except ImportError as e:
+    print(f"⚠️ Async signal manager not available: {e}")
+    AsyncSignalManager = None
+
 # ======================
 # ⚙️ CONFIG & LOGGING
 # ======================
@@ -124,6 +136,7 @@ LAST_RECONNECT_TIME = 0
 # ML Signal Generators
 ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
 ML_SERVICE = MLSignalService() if MLSignalService else None
+SIGNAL_MANAGER = AsyncSignalManager(ML_SERVICE) if AsyncSignalManager and ML_SERVICE else None
 
 # ✅ تحسين #5: أوقات مخفضة
 TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
@@ -223,6 +236,12 @@ CHART_OPENED = False
 ACTIVE_TASKS: Dict[str, asyncio.Task] = {}
 BACKGROUND_TASKS: Dict[str, asyncio.Task] = {}
 BACKGROUND_LOADER_TASK = None
+
+# ======================
+# Phase B: Database & Async Signals
+# ======================
+CANDLE_STORE = CandleStore("quotex_candles.db") if CandleStore else None
+SIGNAL_MANAGER = None  # Initialized after ML service is ready
 
 # ======================
 # Helpers & Reconnection
@@ -472,13 +491,16 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
     return formatted
 
 def update_candle(asset: str, frame: str, price: float, ts_sec: int):
-    global CANDLES, CURRENT_CANDLE
+    global CANDLES, CURRENT_CANDLE, CANDLE_STORE
     duration = TIMEFRAMES.get(frame, 60)
     start = (ts_sec // duration) * duration
     curr = CURRENT_CANDLE.get(asset, {}).get(frame, {})
     if not curr or curr.get("time") != start:
         if curr:
             CANDLES.setdefault(asset, {}).setdefault(frame, []).append(curr.copy())
+            # Save completed candle to database (Phase B)
+            if CANDLE_STORE:
+                CANDLE_STORE.save_candle(asset, frame, curr.copy())
             if len(CANDLES[asset][frame]) > 200:
                 CANDLES[asset][frame] = CANDLES[asset][frame][-200:]
         CURRENT_CANDLE.setdefault(asset, {})[frame] = {
@@ -877,6 +899,23 @@ def on_chart_opened():
             pass
     threading.Thread(target=run, daemon=True).start()
 
+def _start_signal_generation(asset: str, timeframe: str = "1m") -> None:
+    """Start async signal generation for an asset (Phase B).
+
+    Called when an asset is selected. Creates a background thread
+    that generates signals every 10 seconds.
+    """
+    global SIGNAL_MANAGER
+    if SIGNAL_MANAGER:
+        try:
+            def get_candles_for_asset():
+                return CANDLES.get(asset, {}).get(timeframe, [])
+
+            SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_for_asset, interval_seconds=10.0)
+            log(f"Signal generation started for {asset} {timeframe}", 2)
+        except Exception as e:
+            log(f"⚠️ Failed to start signals for {asset}: {e}", 1)
+
 @eel.expose
 def change_asset(asset):
     if not asset or not isinstance(asset, str):
@@ -888,6 +927,8 @@ def change_asset(asset):
     def run():
         try:
             asyncio.run_coroutine_threadsafe(start_streaming(asset), ASYNC_LOOP).result(timeout=15)
+            # Start signal generation for this asset (Phase B)
+            _start_signal_generation(asset, "1m")
         except Exception as e:
             log(f"⚠️ Asset change failed: {e}", 1)
     threading.Thread(target=run, daemon=True).start()
@@ -1071,6 +1112,70 @@ def get_last_ml_signal():
         LAST_ML_SIGNAL = None  # Clear after retrieval
         return signal
     return None
+
+# ======================
+# Phase B: Multi-Asset Signal Management
+# ======================
+@eel.expose
+def get_signal_for_asset(asset: str, timeframe: str = "1m"):
+    """Get latest cached signal for a specific asset (Phase B).
+
+    Args:
+        asset: Asset symbol (e.g. "AUD/CAD (OTC)")
+        timeframe: Timeframe (default "1m")
+
+    Returns:
+        Signal dict or None if not available
+    """
+    global SIGNAL_MANAGER
+    if SIGNAL_MANAGER:
+        return SIGNAL_MANAGER.get_signal(asset, timeframe)
+    return None
+
+@eel.expose
+def get_all_asset_signals():
+    """Get all cached signals for all assets (Phase B).
+
+    Returns:
+        Dict mapping "asset_timeframe" → signal_dict
+    """
+    global SIGNAL_MANAGER
+    if SIGNAL_MANAGER:
+        return SIGNAL_MANAGER.get_all_signals()
+    return {}
+
+@eel.expose
+def get_candles_from_store(asset: str, timeframe: str, limit: int = 200):
+    """Get historical candles from persistent storage (Phase B).
+
+    Args:
+        asset: Asset symbol
+        timeframe: Timeframe
+        limit: Max candles to return (default 200)
+
+    Returns:
+        List of candle dicts with OHLCV data
+    """
+    global CANDLE_STORE
+    if CANDLE_STORE:
+        return CANDLE_STORE.get_candles(asset, timeframe, limit=limit)
+    return []
+
+@eel.expose
+def get_candle_count(asset: str, timeframe: str):
+    """Get total count of historical candles (Phase B).
+
+    Args:
+        asset: Asset symbol
+        timeframe: Timeframe
+
+    Returns:
+        Count of candles in database
+    """
+    global CANDLE_STORE
+    if CANDLE_STORE:
+        return CANDLE_STORE.count_candles(asset, timeframe)
+    return 0
 
 # ======================
 # Main Entry - FIXED with Type Safety
