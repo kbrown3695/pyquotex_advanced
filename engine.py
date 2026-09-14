@@ -844,6 +844,10 @@ async def start_streaming(asset: str):
     ACTIVE_TASKS[asset] = task
     BACKGROUND_LOADER_TASK = asyncio.create_task(smart_background_loader(asset))
 
+    # Phase B: Start signal generation for this asset
+    log(f"Starting signal generation for {asset}...", 2)
+    _start_signal_generation(asset, CURRENT_TIMEFRAME)
+
 # ======================
 # Input Validation
 # ======================
@@ -905,16 +909,36 @@ def _start_signal_generation(asset: str, timeframe: str = "1m") -> None:
     Called when an asset is selected. Creates a background thread
     that generates signals every 10 seconds.
     """
-    global SIGNAL_MANAGER
-    if SIGNAL_MANAGER:
-        try:
-            def get_candles_for_asset():
-                return CANDLES.get(asset, {}).get(timeframe, [])
+    global SIGNAL_MANAGER, ML_SERVICE, CANDLE_STORE
+    if not SIGNAL_MANAGER or not ML_SERVICE:
+        log(f"⚠️ Signal manager or ML service not initialized", 1)
+        return
 
-            SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_for_asset, interval_seconds=10.0)
-            log(f"Signal generation started for {asset} {timeframe}", 2)
-        except Exception as e:
-            log(f"⚠️ Failed to start signals for {asset}: {e}", 1)
+    # Check if signal thread already running for this asset
+    key = f"{asset}_{timeframe}"
+    if hasattr(SIGNAL_MANAGER, 'threads') and key in SIGNAL_MANAGER.threads:
+        if SIGNAL_MANAGER.threads[key].is_alive():
+            log(f"Signal generation already running for {asset} {timeframe}", 2)
+            return
+
+    try:
+        def get_candles_for_asset():
+            candles = CANDLES.get(asset, {}).get(timeframe, [])
+            if not candles:
+                # Try loading from database as fallback
+                if CANDLE_STORE:
+                    try:
+                        candles = CANDLE_STORE.get_candles(asset, timeframe, limit=200)
+                        if candles:
+                            log(f"Loaded {len(candles)} candles from DB for {asset} {timeframe}", 2)
+                    except Exception:
+                        pass
+            return candles
+
+        SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_for_asset, interval_seconds=10.0)
+        log(f"🔗 Signal generation started for {asset} {timeframe}", 1)
+    except Exception as e:
+        log(f"⚠️ Failed to start signals for {asset}: {e}", 1)
 
 @eel.expose
 def change_asset(asset):
@@ -1176,6 +1200,34 @@ def get_candle_count(asset: str, timeframe: str):
     if CANDLE_STORE:
         return CANDLE_STORE.count_candles(asset, timeframe)
     return 0
+
+@eel.expose
+def get_signal_status():
+    """Get diagnostic status of signal generation (Phase B).
+
+    Returns:
+        Dict with signal manager status and active threads
+    """
+    global SIGNAL_MANAGER, ML_SERVICE, CANDLE_STORE
+    status = {
+        "ml_service_ready": ML_SERVICE is not None,
+        "signal_manager_ready": SIGNAL_MANAGER is not None,
+        "candle_store_ready": CANDLE_STORE is not None,
+        "current_asset": CURRENT_ASSET,
+        "current_timeframe": CURRENT_TIMEFRAME,
+    }
+
+    if SIGNAL_MANAGER:
+        status["active_signals"] = SIGNAL_MANAGER.get_all_signals()
+        status["cached_count"] = len(SIGNAL_MANAGER.signal_cache)
+        status["thread_count"] = len(SIGNAL_MANAGER.threads)
+
+    # Add CANDLES info
+    if CURRENT_ASSET in CANDLES:
+        for tf in CANDLES[CURRENT_ASSET]:
+            status[f"candles_{tf}"] = len(CANDLES[CURRENT_ASSET].get(tf, []))
+
+    return status
 
 # ======================
 # Main Entry - FIXED with Type Safety

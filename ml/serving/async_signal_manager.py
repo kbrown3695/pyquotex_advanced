@@ -106,13 +106,20 @@ class AsyncSignalManager:
         """
         key = f"{asset}_{timeframe}"
         stop_event = self.stop_signals[key]
+        error_count = 0
+        max_errors = 5
 
         while not stop_event.is_set():
             try:
                 candles = get_candles_fn()
-                if candles and len(candles) >= 26:
+                if not candles:
+                    # Not ready yet
+                    pass
+                elif len(candles) < 26:
+                    # Not enough candles yet
+                    pass
+                else:
                     signal = self.ml_service.generate_signal(asset, timeframe, candles)
-
                     if signal:
                         with self._lock:
                             self.signal_cache[key] = SignalCache(
@@ -121,9 +128,16 @@ class AsyncSignalManager:
                                 asset=asset,
                                 timeframe=timeframe,
                             )
+                        error_count = 0  # Reset error count on success
             except Exception as e:
-                # Silently continue on error
-                pass
+                error_count += 1
+                if error_count <= max_errors:
+                    # Log first few errors only
+                    import sys
+                    print(f"[AsyncSignalManager] Signal error for {asset}: {type(e).__name__}", file=sys.stderr)
+                if error_count > max_errors:
+                    # Stop trying after too many errors
+                    break
 
             # Sleep until next interval or stop signal
             stop_event.wait(timeout=interval_seconds)
