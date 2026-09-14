@@ -1299,7 +1299,7 @@ def train_ml_signals():
             fut = asyncio.run_coroutine_threadsafe(
                 _train_ml_signals_async(), ASYNC_LOOP
             )
-            ML_TRAINING_RESULT = fut.result(timeout=120)
+            ML_TRAINING_RESULT = fut.result(timeout=300)
             log(f"🤖 ML training cached: {ML_TRAINING_RESULT.get('accuracy', 'N/A')}", 1)
 
             # Save trained models to file

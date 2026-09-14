@@ -208,69 +208,67 @@ class MLSignalService:
 
 			# Range = high - low (volatility measure)
 			y_volatility = highs - lows
-			# Trim to match X size
-			y_volatility = y_volatility[-(len(X)):]
-
-			if len(y_volatility) == len(X) and len(y_volatility) > 0:
-				vol_model.train(X, y_volatility)
+			# Align to match X size - use min to handle any size differences
+			common_size = min(len(y_volatility), len(X))
+			if common_size > 10:
+				y_volatility = y_volatility[-common_size:]
+				X_trimmed = X[-common_size:]
+				vol_model.train(X_trimmed, y_volatility)
 				self.registry.save_and_activate(
 					vol_model, asset, timeframe,
-					metrics={"status": "trained", "samples": len(X)},
+					metrics={"status": "trained", "samples": common_size},
 					algorithm="volatility",
 					model_key="volatility",
 				)
 				models_trained.append("volatility")
 			else:
-				results["volatility_error"] = f"Size mismatch: y_volatility ({len(y_volatility)}) vs X ({len(X)})"
+				results["volatility_error"] = f"Insufficient data: min(y_volatility={len(y_volatility)}, X={len(X)}) = {common_size}"
 		except Exception as e:
 			results["volatility_error"] = str(e)
 			print(f"[volatility] Training error: {e}")
 
 		# Phase B: Train QuantileModel (lightgbm) - upper quantile
 		try:
-			# Calculate returns with same shape alignment as X
 			closes = np.array([c["close"] for c in candles])
-			y_return = np.diff(closes) / closes[:-1] * 100  # % returns
-			y_return = y_return[-(len(X)):]  # Trim to match X
-			if len(y_return) == len(X):
+			y_return = np.diff(closes) / closes[:-1] * 100
+			common_size = min(len(y_return), len(X))
+			if common_size > 10:
+				y_return = y_return[-common_size:]
+				X_trimmed = X[-common_size:]
 				quantile_model = QuantileModel(quantile=0.75)
 				quantile_model.set_feature_names(feature_names)
-				quantile_model.train(X, y_return)
+				quantile_model.train(X_trimmed, y_return)
 				self.registry.save_and_activate(
 					quantile_model, asset, timeframe,
-					metrics={"status": "trained", "samples": len(X)},
+					metrics={"status": "trained", "samples": common_size},
 					algorithm="quantile_upper",
 					model_key="quantile_upper",
 				)
 				models_trained.append("quantile_upper")
-			else:
-				results["quantile_upper_error"] = f"Size mismatch: y_return ({len(y_return)}) vs X ({len(X)})"
 		except Exception as e:
 			results["quantile_upper_error"] = str(e)
 			print(f"[quantile_upper] Training error: {e}")
 
 		# Phase B: Train QuantileModel (lightgbm) - lower quantile
 		try:
-			# Calculate returns with same shape alignment as X
 			closes = np.array([c["close"] for c in candles])
-			y_return = np.diff(closes) / closes[:-1] * 100  # % returns
-			y_return = y_return[-(len(X)):]  # Trim to match X
-			if len(y_return) == len(X):
+			y_return = np.diff(closes) / closes[:-1] * 100
+			common_size = min(len(y_return), len(X))
+			if common_size > 10:
+				y_return = y_return[-common_size:]
+				X_trimmed = X[-common_size:]
 				quantile_model = QuantileModel(quantile=0.25)
 				quantile_model.set_feature_names(feature_names)
-				quantile_model.train(X, y_return)
+				quantile_model.train(X_trimmed, y_return)
 				self.registry.save_and_activate(
 					quantile_model, asset, timeframe,
-					metrics={"status": "trained", "samples": len(X)},
+					metrics={"status": "trained", "samples": common_size},
 					algorithm="quantile_lower",
 					model_key="quantile_lower",
 				)
 				models_trained.append("quantile_lower")
-			else:
-				results["quantile_lower_error"] = f"Size mismatch: y_return ({len(y_return)}) vs X ({len(X)})"
 		except Exception as e:
 			results["quantile_lower_error"] = str(e)
-			print(f"[quantile_lower] Training error: {e}")
 
 		# Aggregate feature importances from models that have them
 		feature_importances = {}
