@@ -252,6 +252,7 @@ let currentSignalPair = null;
 let signalPairPollInterval = null;
 let selectedPairs = ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "GBP/USD (OTC)"];  // Default pairs
 let allAvailableAssets = [];  // Will be loaded from backend
+let recentPairs = [];  // Recently used pairs for quick access
 
 /**
  * Open the multi-asset signal panel (Phase B).
@@ -399,11 +400,42 @@ function stopSignalPairPolling() {
 function addPairToMonitor(pair) {
     if (!selectedPairs.includes(pair)) {
         selectedPairs.push(pair);
+        addToRecentPairs(pair);
         savePairPreferences();
         renderPairTabs();
 
         console.log(`📡 Adding ${pair} to monitoring (loading candles)...`);
         startSignalsForPair(pair);  // This will load candles in background
+    }
+}
+
+/**
+ * Add pair to recently used list (max 10).
+ */
+function addToRecentPairs(pair) {
+    // Remove if already exists, then add to front
+    recentPairs = recentPairs.filter(p => p !== pair);
+    recentPairs.unshift(pair);
+
+    // Keep only last 10
+    if (recentPairs.length > 10) {
+        recentPairs = recentPairs.slice(0, 10);
+    }
+
+    localStorage.setItem('recentSignalPairs', JSON.stringify(recentPairs));
+}
+
+/**
+ * Load recent pairs from localStorage.
+ */
+function loadRecentPairs() {
+    try {
+        const saved = localStorage.getItem('recentSignalPairs');
+        if (saved) {
+            recentPairs = JSON.parse(saved);
+        }
+    } catch (e) {
+        console.warn('⚠️ Failed to load recent pairs:', e);
     }
 }
 
@@ -509,6 +541,8 @@ function openPairSelector() {
     const modal = document.getElementById('pairSelectorModal');
     if (!modal) return;
 
+    loadRecentPairs();  // Load recently used pairs
+
     // Load assets if not already loaded
     if (allAvailableAssets.length === 0) {
         console.log("📡 Loading available assets...");
@@ -556,21 +590,42 @@ function renderPairSelectorContent(filter = '') {
         return;
     }
 
+    let html = '';
+
+    // Show recent pairs first (if no filter)
+    if (!filter && recentPairs.length > 0) {
+        html += '<div style="padding: 8px 12px; font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">⏱️ Recent</div>';
+        html += recentPairs.map(pair => `
+            <div class="pair-selector-item ${selectedPairs.includes(pair) ? 'selected' : ''}"
+                 onclick="togglePairSelection('${pair}')">
+                ${pair}
+            </div>
+        `).join('');
+        html += '<div style="height: 1px; background: rgba(59, 130, 246, 0.2); margin: 8px 0;"></div>';
+    }
+
+    // Show all assets (filtered if search)
     const filteredAssets = allAvailableAssets.filter(asset =>
         asset.toLowerCase().includes(filter.toLowerCase())
     );
 
     if (filteredAssets.length === 0) {
-        content.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">No pairs found</div>';
+        if (!html) {
+            content.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">No pairs found</div>';
+        } else {
+            content.innerHTML = html;
+        }
         return;
     }
 
-    content.innerHTML = filteredAssets.map(asset => `
+    html += filteredAssets.map(asset => `
         <div class="pair-selector-item ${selectedPairs.includes(asset) ? 'selected' : ''}"
              onclick="togglePairSelection('${asset}')">
             ${asset}
         </div>
     `).join('');
+
+    content.innerHTML = html;
 }
 
 /**

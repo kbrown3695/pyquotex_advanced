@@ -1317,13 +1317,21 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
                 if not CLIENT:
                     return
 
+                # Convert timeframe to seconds
+                timeframe_map = {
+                    "1m": 60, "2m": 120, "3m": 180, "5m": 300,
+                    "10m": 600, "15m": 900, "30m": 1800,
+                    "1h": 3600, "4h": 14400
+                }
+                period = timeframe_map.get(timeframe, 60)
+
                 # Load 200 historical candles
                 candle_count = CANDLE_STORE.count_candles(asset, timeframe) if CANDLE_STORE else 0
                 if candle_count < 26:
-                    # Need more candles - subscribe temporarily
+                    # Need more candles - fetch from broker
                     log(f"📡 Pre-loading candles for new pair {asset}...", 1)
                     fut = asyncio.run_coroutine_threadsafe(
-                        CLIENT.get_candles(asset, timeframe, 200),
+                        CLIENT.get_candles(asset, period, 200),
                         ASYNC_LOOP
                     )
                     candles = fut.result(timeout=10)
