@@ -534,13 +534,24 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int):
         curr["close"] = price
 
 def prune_candle_cache(keep_asset: str):
-    """Drop cached candles for all assets except `keep_asset`.
+    """Drop cached candles for all assets except those with active signals.
 
-    Bounds memory to a single asset (200 candles x 14 timeframes) instead
-    of growing with every asset ever viewed.
+    Bounds memory while preserving candles for assets with signal generation.
     """
+    global SIGNAL_MANAGER
+    # Always keep candles for assets with active signal threads
+    keep_assets = {keep_asset}
+    if SIGNAL_MANAGER and hasattr(SIGNAL_MANAGER, 'threads'):
+        for key in SIGNAL_MANAGER.threads.keys():
+            # Key format: "ASSET_DISPLAY_NAME_TIMEFRAME", extract asset
+            parts = key.rsplit('_', 1)  # Split from right to separate timeframe
+            if len(parts) == 2:
+                asset = parts[0]
+                keep_assets.add(asset)
+
+    # Remove only assets that aren't in keep_assets
     for asset in list(CANDLES.keys()):
-        if asset != keep_asset:
+        if asset not in keep_assets:
             CANDLES.pop(asset, None)
     for asset in list(CURRENT_CANDLE.keys()):
         if asset != keep_asset:
