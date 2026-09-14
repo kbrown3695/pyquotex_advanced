@@ -1295,7 +1295,7 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
     Returns:
         Success status dict
     """
-    global SIGNAL_MANAGER, CANDLE_STORE, ASYNC_LOOP
+    global SIGNAL_MANAGER, CANDLE_STORE, ASYNC_LOOP, CURRENT_TIMEFRAME
     if not SIGNAL_MANAGER:
         return {"success": False, "error": "SIGNAL_MANAGER not initialized"}
 
@@ -1311,37 +1311,27 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
         SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_fn)
         log(f"✅ Started signal generation for {asset} {timeframe}", 1)
 
-        # Background task: load initial candles for this asset
-        def load_initial_candles():
+        # Subscribe to real-time price stream to feed candles
+        async def subscribe_to_realtime():
             try:
                 if not CLIENT:
                     return
+                internal = DISPLAY_TO_INTERNAL.get(asset)
+                if not internal:
+                    log(f"⚠️ No internal symbol for {asset}", 1)
+                    return
 
-                # Convert timeframe to seconds
-                timeframe_map = {
-                    "1m": 60, "2m": 120, "3m": 180, "5m": 300,
-                    "10m": 600, "15m": 900, "30m": 1800,
-                    "1h": 3600, "4h": 14400
-                }
-                period = timeframe_map.get(timeframe, 60)
+                # Use current or default timeframe for subscription
+                tf = CURRENT_TIMEFRAME if CURRENT_TIMEFRAME else "1m"
+                period = TIMEFRAMES.get(tf, 60)
 
-                # Load 200 historical candles
-                candle_count = CANDLE_STORE.count_candles(asset, timeframe) if CANDLE_STORE else 0
-                if candle_count < 26:
-                    # Need more candles - fetch from broker
-                    log(f"📡 Pre-loading candles for new pair {asset}...", 1)
-                    fut = asyncio.run_coroutine_threadsafe(
-                        CLIENT.get_candles(asset, period, 200),
-                        ASYNC_LOOP
-                    )
-                    candles = fut.result(timeout=10)
-                    if candles and CANDLE_STORE:
-                        CANDLE_STORE.save_candles_batch(asset, timeframe, candles)
-                        log(f"✅ Pre-loaded {len(candles)} candles for {asset}", 1)
+                log(f"📡 Subscribing {asset} to real-time stream ({tf})...", 1)
+                await CLIENT.start_realtime_price(internal, period)
+                log(f"✅ Subscribed {asset} to real-time price stream", 1)
             except Exception as e:
-                log(f"⚠️ Failed to pre-load candles for {asset}: {e}", 1)
+                log(f"⚠️ Failed to subscribe {asset} to real-time: {e}", 1)
 
-        threading.Thread(target=load_initial_candles, daemon=True, name=f"Loader-{asset}").start()
+        asyncio.run_coroutine_threadsafe(subscribe_to_realtime(), ASYNC_LOOP)
 
         return {"success": True, "asset": asset, "timeframe": timeframe}
     except Exception as e:
