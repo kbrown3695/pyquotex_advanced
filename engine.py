@@ -1153,7 +1153,7 @@ def get_connection_status():
 # ======================
 
 async def _train_ml_signals_async():
-    """Async ML model training (non-blocking)."""
+    """Async ML model training (non-blocking via thread pool)."""
     # Try ML_SERVICE first (Phase A+), fall back to ENSEMBLE_GENERATOR (legacy)
     if not ML_SERVICE and not ENSEMBLE_GENERATOR:
         return {'error': 'ML signals not available'}
@@ -1167,12 +1167,17 @@ async def _train_ml_signals_async():
         if len(candles) < 100:
             return {'error': f'Need at least 100 candles, have {len(candles)}'}
 
-        # Try new ML service first
+        # Run synchronous training in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
         if ML_SERVICE:
-            result = ML_SERVICE.train_all(asset, tf, candles, lookahead=1)
+            result = await loop.run_in_executor(
+                None, ML_SERVICE.train_all, asset, tf, candles
+            )
         else:
             # Fallback to legacy ensemble generator
-            result = ENSEMBLE_GENERATOR.ml.train(candles, lookback=100)
+            result = await loop.run_in_executor(
+                None, ENSEMBLE_GENERATOR.ml.train, candles
+            )
 
         log(f"🤖 ML training done: {result.get('accuracy', 'N/A')} accuracy", 1)
         return result
@@ -1181,7 +1186,7 @@ async def _train_ml_signals_async():
         return {'error': str(e)}
 
 async def _get_ml_signal_async():
-    """Async ML signal generation (non-blocking)."""
+    """Async ML signal generation (non-blocking via thread pool)."""
     # Try ML_SERVICE first (Phase A+), fall back to ENSEMBLE_GENERATOR (legacy)
     if not ML_SERVICE and not ENSEMBLE_GENERATOR:
         return None
@@ -1195,16 +1200,25 @@ async def _get_ml_signal_async():
         if not candles or len(candles) < 26:
             return None
 
-        # Try new ML service first
-        if ML_SERVICE:
-            signal = ML_SERVICE.generate_signal(asset, tf, candles)
-            if signal:
-                return signal.to_dict()
-        else:
-            # Fallback to legacy ensemble generator
-            signal = ENSEMBLE_GENERATOR.generate_signal(candles)
-            if signal:
-                return signal.to_dict()
+        # Run signal generation in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        try:
+            # Try new ML service first
+            if ML_SERVICE:
+                signal = await loop.run_in_executor(
+                    None, ML_SERVICE.generate_signal, asset, tf, candles
+                )
+                if signal:
+                    return signal.to_dict()
+            else:
+                # Fallback to legacy ensemble generator
+                signal = await loop.run_in_executor(
+                    None, ENSEMBLE_GENERATOR.generate_signal, candles
+                )
+                if signal:
+                    return signal.to_dict()
+        except Exception as inner_e:
+            log(f"⚠️ ML signal inner error: {inner_e}", 2)
 
         return None
     except Exception as e:
