@@ -1300,12 +1300,18 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
         return {"success": False, "error": "SIGNAL_MANAGER not initialized"}
 
     try:
-        # Get candles getter for this asset
+        # Get candles getter for this asset (same logic as _start_signal_generation)
         def get_candles_fn():
-            if CANDLE_STORE:
-                candles = CANDLE_STORE.get_candles(asset, timeframe, limit=500)
-                return candles if candles else []
-            return []
+            # First try in-memory CANDLES (fed by real-time stream)
+            candles = CANDLES.get(asset, {}).get(timeframe, [])
+            if not candles:
+                # Fall back to database
+                if CANDLE_STORE:
+                    try:
+                        candles = CANDLE_STORE.get_candles(asset, timeframe, limit=200)
+                    except Exception:
+                        pass
+            return candles
 
         # Start signal generation thread
         SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_fn)
