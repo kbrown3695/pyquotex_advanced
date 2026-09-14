@@ -137,12 +137,20 @@ LAST_RECONNECT_TIME = 0
 ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
 ML_SERVICE = MLSignalService() if MLSignalService else None
 # Initialize SIGNAL_MANAGER eagerly (not lazily) so it's ready when frontend polls
-if ML_SERVICE and AsyncSignalManager:
-    SIGNAL_MANAGER = AsyncSignalManager(ML_SERVICE)
-    log("🔗 AsyncSignalManager initialized at module load", 1)
-else:
+SIGNAL_MANAGER = None
+try:
+    if ML_SERVICE and AsyncSignalManager:
+        SIGNAL_MANAGER = AsyncSignalManager(ML_SERVICE)
+        print(f"✅ SIGNAL_MANAGER initialized: {SIGNAL_MANAGER}")
+        log("🔗 AsyncSignalManager initialized at module load", 1)
+    else:
+        print(f"⚠️ Cannot init: ML_SERVICE={ML_SERVICE is not None}, AsyncSignalManager={AsyncSignalManager is not None}")
+        log(f"⚠️ Cannot initialize AsyncSignalManager: ML_SERVICE={ML_SERVICE is not None}, AsyncSignalManager={AsyncSignalManager is not None}", 1)
+except Exception as e:
+    print(f"❌ SIGNAL_MANAGER init failed: {e}")
+    import traceback
+    traceback.print_exc()
     SIGNAL_MANAGER = None
-    log(f"⚠️ Cannot initialize AsyncSignalManager: ML_SERVICE={ML_SERVICE is not None}, AsyncSignalManager={AsyncSignalManager is not None}", 1)
 
 # ✅ تحسين #5: أوقات مخفضة
 TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
