@@ -56,3 +56,8 @@ temp/
 ##Artificial Intelligence
 .claude/
 .continue/
+
+# ML Models (generated during training)
+models/
+*.joblib
+quotex_candles.db
