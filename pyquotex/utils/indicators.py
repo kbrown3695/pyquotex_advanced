@@ -289,3 +289,32 @@ class TechnicalIndicators:
                 "chikou": chikou[-1] if chikou else None
             }
         }
+
+    @staticmethod
+    def calculate_awesome_oscillator(highs: List[float], lows: List[float],
+                                      fast_period: int = 5, slow_period: int = 34) -> Dict[str, Union[List[float], Dict]]:
+        """Calcula el Awesome Oscillator (AO).
+
+        AO = SMA(High+Low)/2, 5-period) - SMA((High+Low)/2, 34-period)
+        Mide el impulso del mercado comparando medias móviles rápidas y lentas.
+        """
+        if len(highs) < slow_period or len(lows) < slow_period:
+            return {"ao": [], "current": None}
+
+        # Calcular HL2 (promedio de High y Low)
+        hl2 = [(highs[i] + lows[i]) / 2 for i in range(len(highs))]
+
+        # Calcular SMA de 5 periodos y 34 periodos
+        fast_sma = TechnicalIndicators.calculate_sma(hl2, fast_period)
+        slow_sma = TechnicalIndicators.calculate_sma(hl2, slow_period)
+
+        # AO = SMA5 - SMA34
+        ao_values = []
+        for i in range(len(slow_sma)):
+            ao = fast_sma[i + (len(fast_sma) - len(slow_sma))] - slow_sma[i]
+            ao_values.append(round(ao, 4))
+
+        return {
+            "ao": ao_values,
+            "current": ao_values[-1] if ao_values else None
+        }

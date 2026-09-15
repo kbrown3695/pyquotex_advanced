@@ -152,6 +152,82 @@ class FeatureEngineer:
         return atr_values
 
     @staticmethod
+    def calculate_adx(candles: List[Dict], period: int = 14) -> Tuple[List[float], List[float], List[float]]:
+        """ADX (Average Directional Index) and directional indicators."""
+        if len(candles) < period + 1:
+            return [None] * len(candles), [None] * len(candles), [None] * len(candles)
+
+        highs = [c['high'] for c in candles]
+        lows = [c['low'] for c in candles]
+        closes = [c['close'] for c in candles]
+
+        tr = []
+        plus_dm = []
+        minus_dm = []
+
+        for i in range(1, len(candles)):
+            high = highs[i]
+            low = lows[i]
+            prev_high = highs[i - 1]
+            prev_low = lows[i - 1]
+            prev_close = closes[i - 1]
+
+            tr1 = high - low
+            tr2 = abs(high - prev_close)
+            tr3 = abs(low - prev_close)
+            tr.append(max(tr1, tr2, tr3))
+
+            plus_dm1 = high - prev_high
+            minus_dm1 = prev_low - low
+
+            plus_dm.append(plus_dm1 if plus_dm1 > minus_dm1 and plus_dm1 > 0 else 0)
+            minus_dm.append(minus_dm1 if minus_dm1 > plus_dm1 and minus_dm1 > 0 else 0)
+
+        tr_avg = [None] + [np.mean(tr[:period])]
+        plus_di_avg = [None] + [np.mean(plus_dm[:period]) * 100 / tr_avg[1]] if tr_avg[1] else [None]
+        minus_di_avg = [None] + [np.mean(minus_dm[:period]) * 100 / tr_avg[1]] if tr_avg[1] else [None]
+
+        for i in range(period, len(tr)):
+            tr_avg.append((tr_avg[-1] * (period - 1) + tr[i]) / period)
+            pdm = (np.mean(plus_dm[max(0, i-period+1):i+1]) * (period - 1) + plus_dm[i]) / period
+            mdm = (np.mean(minus_dm[max(0, i-period+1):i+1]) * (period - 1) + minus_dm[i]) / period
+            plus_di_avg.append(pdm * 100 / tr_avg[-1] if tr_avg[-1] else 0)
+            minus_di_avg.append(mdm * 100 / tr_avg[-1] if tr_avg[-1] else 0)
+
+        dx_values = []
+        for i in range(len(plus_di_avg)):
+            if plus_di_avg[i] and minus_di_avg[i]:
+                di_sum = plus_di_avg[i] + minus_di_avg[i]
+                dx = abs(plus_di_avg[i] - minus_di_avg[i]) / di_sum * 100 if di_sum != 0 else 0
+            else:
+                dx = 0
+            dx_values.append(dx)
+
+        adx = [None] * (period - 1)
+        adx.append(np.mean(dx_values[:period]))
+        for i in range(period, len(dx_values)):
+            adx.append((adx[-1] * (period - 1) + dx_values[i]) / period)
+
+        return adx, [x if x else None for x in plus_di_avg], [x if x else None for x in minus_di_avg]
+
+    @staticmethod
+    def calculate_awesome_oscillator(candles: List[Dict], fast_period: int = 5, slow_period: int = 34) -> List[float]:
+        """Awesome Oscillator: SMA(HL/2, 5) - SMA(HL/2, 34)."""
+        if len(candles) < slow_period:
+            return [None] * len(candles)
+
+        hl2 = [(c['high'] + c['low']) / 2 for c in candles]
+        fast_sma = FeatureEngineer.calculate_sma(hl2, fast_period)
+        slow_sma = FeatureEngineer.calculate_sma(hl2, slow_period)
+
+        ao = [None] * len(candles)
+        for i in range(len(slow_sma)):
+            if fast_sma[i + (len(fast_sma) - len(slow_sma))] and slow_sma[i]:
+                ao[i + (len(fast_sma) - len(slow_sma))] = fast_sma[i + (len(fast_sma) - len(slow_sma))] - slow_sma[i]
+
+        return ao
+
+    @staticmethod
     def engineer_features(candles: List[Dict]) -> Dict[str, List[float]]:
         """
         Extract all features from candle history.
@@ -182,6 +258,20 @@ class FeatureEngineer:
             'macd_hist': macd_hist,
         })
 
+        # ADX and directional indicators
+        adx, plus_di, minus_di = FeatureEngineer.calculate_adx(candles, 14)
+        features.update({
+            'adx': adx,
+            'plus_di': plus_di,
+            'minus_di': minus_di,
+        })
+
+        # Awesome Oscillator
+        ao = FeatureEngineer.calculate_awesome_oscillator(candles, 5, 34)
+        features.update({
+            'awesome_oscillator': ao,
+        })
+
         # Candle body and wick features
         bodies = [abs(c['close'] - c['open']) for c in candles]
         upper_wicks = [c['high'] - max(c['close'], c['open']) for c in candles]
@@ -207,9 +297,9 @@ class MomentumSignalGenerator:
     def calculate_score(candles: List[Dict]) -> SignalResult:
         """
         Score momentum on scale -1.0 (strong sell) to +1.0 (strong buy).
-        Uses RSI + MACD + EMA trend.
+        Uses: RSI, MACD, ADX, Awesome Oscillator, EMA trend.
         """
-        if len(candles) < 26:
+        if len(candles) < 34:  # Need 34 for Awesome Oscillator
             return SignalResult('BUY', 0.0, 'Insufficient data', 'momentum')
 
         features = FeatureEngineer.engineer_features(candles)
@@ -218,43 +308,91 @@ class MomentumSignalGenerator:
         latest_idx = -1
         rsi = features['rsi_14'][latest_idx] if features['rsi_14'][latest_idx] else 50
         macd_hist = features['macd_hist'][latest_idx] if features['macd_hist'][latest_idx] else 0
+        adx = features['adx'][latest_idx] if features['adx'][latest_idx] else 25
+        plus_di = features['plus_di'][latest_idx] if features['plus_di'][latest_idx] else 0
+        minus_di = features['minus_di'][latest_idx] if features['minus_di'][latest_idx] else 0
+        awesome = features['awesome_oscillator'][latest_idx] if features['awesome_oscillator'][latest_idx] else 0
 
         close = candles[-1]['close']
-        ema12 = features['ema_12'][-1]
-        ema26 = features['ema_26'][-1]
+        ema12 = features['ema_12'][latest_idx]
+        ema26 = features['ema_26'][latest_idx]
 
         # Component scores (-1 to +1)
-        rsi_score = (rsi - 50) / 50  # -1 if RSI=0, +1 if RSI=100
+        # RSI: 0-100 scale, neutral at 50
+        rsi_score = (rsi - 50) / 50
         rsi_score = np.clip(rsi_score, -1, 1)
 
+        # MACD histogram: positive = bullish, negative = bearish
         macd_score = np.sign(macd_hist) if macd_hist != 0 else 0
 
+        # ADX: strength of trend (0-100), higher = stronger trend
+        # Combined with directional indicators
+        adx_strength = min(adx / 40, 1.0) if adx else 0  # Normalize to 0-1
+        direction_score = np.sign(plus_di - minus_di) if (plus_di != minus_di) else 0
+        adx_score = direction_score * adx_strength
+
+        # Awesome Oscillator: positive = bullish momentum, negative = bearish
+        ao_score = np.sign(awesome) if awesome != 0 else 0
+        # Boost score if AO shows convergence/divergence
+        if awesome != 0 and len(candles) > 2:
+            prev_ao = features['awesome_oscillator'][-2] if len(features['awesome_oscillator']) > 1 else 0
+            if prev_ao and awesome:
+                if (awesome > 0 and awesome > prev_ao) or (awesome < 0 and awesome < prev_ao):
+                    ao_score *= 1.2  # Strengthen signal if AO is accelerating
+
+        # EMA trend: price above/below moving averages
         trend_score = 1.0 if (ema12 > ema26 and close > ema12) else (-1.0 if (ema12 < ema26 and close < ema12) else 0)
 
-        # Weighted average
+        # Weighted average: RSI, MACD, ADX, Awesome, Trend
         components = {
             'rsi_score': round(rsi_score, 3),
             'macd_score': round(macd_score, 3),
+            'adx_score': round(adx_score, 3),
+            'awesome_score': round(ao_score, 3),
             'trend_score': round(trend_score, 3),
             'rsi': round(rsi, 1),
             'macd_hist': round(macd_hist, 6),
+            'adx': round(adx, 1),
+            'plus_di': round(plus_di, 1),
+            'minus_di': round(minus_di, 1),
+            'awesome': round(awesome, 6),
         }
 
-        score = (rsi_score * 0.35 + macd_score * 0.35 + trend_score * 0.30)
+        # Weighted combination: ADX trend strength, MACD/Awesome confirmation, RSI extremes
+        score = (
+            adx_score * 0.30 +      # ADX + DI/MDI: trend direction & strength
+            macd_score * 0.25 +     # MACD: momentum confirmation
+            ao_score * 0.20 +       # Awesome: market momentum
+            trend_score * 0.15 +    # EMA: longer-term trend
+            rsi_score * 0.10        # RSI: overbought/oversold extremes
+        )
 
         # Convert to signal
-        if score > 0.3:
+        macd_dir = 'UP' if macd_score > 0 else 'DOWN'
+        ao_dir = 'UP' if ao_score > 0 else 'DOWN'
+        trend_dir = 'UP' if trend_score > 0 else ('DOWN' if trend_score < 0 else 'FLAT')
+        di_dir = '+DI' if plus_di > minus_di else '-DI'
+
+        if score > 0.4:
             side = 'BUY'
             confidence = min(score, 1.0)
-            reason = f"Bullish momentum (RSI={rsi:.0f}, MACD +, Trend up)"
-        elif score < -0.3:
+            reason = f"Strong BUY | ADX={adx:.0f} ({di_dir}), MACD {macd_dir}, AO {ao_dir}"
+        elif score > 0.15:
+            side = 'BUY'
+            confidence = score
+            reason = f"Weak BUY | RSI={rsi:.0f}, Trend {trend_dir}"
+        elif score < -0.4:
             side = 'SELL'
             confidence = min(abs(score), 1.0)
-            reason = f"Bearish momentum (RSI={rsi:.0f}, MACD -, Trend down)"
+            reason = f"Strong SELL | ADX={adx:.0f} ({di_dir}), MACD {macd_dir}, AO {ao_dir}"
+        elif score < -0.15:
+            side = 'SELL'
+            confidence = abs(score)
+            reason = f"Weak SELL | RSI={rsi:.0f}, Trend {trend_dir}"
         else:
             side = 'BUY' if score > 0 else 'SELL'
-            confidence = abs(score) * 0.5  # Low confidence for neutral
-            reason = f"Neutral momentum (score={score:.2f})"
+            confidence = abs(score) * 0.5
+            reason = f"Neutral | Score={score:.2f}"
 
         return SignalResult(side, confidence, reason, 'momentum', components)
 
@@ -409,7 +547,13 @@ class MLSignalGenerator:
             try:
                 with open(self.model_path) as f:
                     data = json.load(f)
-                print(f"✅ Model loaded: {data.get('trained_at')}")
+                # Check for training_date (newer format) or trained_at (legacy format)
+                timestamp = data.get('training_date') or data.get('trained_at')
+                model_count = len(data.get('result', {}).get('models_trained', []))
+                if model_count > 0:
+                    print(f"✅ Model loaded: {timestamp} ({model_count} models trained)")
+                else:
+                    print(f"✅ Model metadata loaded: {timestamp}")
             except Exception as e:
                 print(f"⚠️ Failed to load model: {e}")
 
