@@ -17,6 +17,8 @@ from ml.models.gradient_boosting_model import (
 from ml.models.kalman_state_space import KalmanStateSpaceModel
 from ml.models.expected_return_model import ExpectedReturnModel
 from ml.models.probability_model import ProbabilityModel
+from ml.models.regime_classifier import RegimeClassifier
+from ml.models.hmm_regime_model import HMMRegimeModel
 
 
 class ModelRegistry:
@@ -43,6 +45,8 @@ class ModelRegistry:
             "KalmanStateSpaceModel": KalmanStateSpaceModel,
             "ExpectedReturnModel": ExpectedReturnModel,
             "ProbabilityModel": ProbabilityModel,
+            "RegimeClassifier": RegimeClassifier,
+            "HMMRegimeModel": HMMRegimeModel,
         }
 
     def _slugify(self, asset: str, timeframe: str, model_key: str = "default") -> str:
@@ -265,6 +269,17 @@ class ModelRegistry:
 
         try:
             return ProbabilityModel.load(str(model_path))
+        except Exception:
+            pass
+
+        # Try Phase C models (regime classification)
+        try:
+            return RegimeClassifier.load(str(model_path))
+        except Exception:
+            pass
+
+        try:
+            return HMMRegimeModel.load(str(model_path))
         except Exception:
             pass
 

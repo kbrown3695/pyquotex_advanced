@@ -23,6 +23,8 @@ from ml.models.gradient_boosting_model import (
 )
 from ml.models.volatility_model import VolatilityModel
 from ml.models.quantile_model import QuantileModel
+from ml.models.regime_classifier import RegimeClassifier
+from ml.models.hmm_regime_model import HMMRegimeModel
 
 
 class MLSignalService:
@@ -292,6 +294,87 @@ class MLSignalService:
 			import traceback
 			results["quantile_lower_error"] = str(e)
 			print(f"[quantile_lower] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
+
+		# Phase C: Train RegimeClassifier (LightGBM)
+		try:
+			# Create regime labels: classify each row based on returns + volatility + trend
+			closes = np.array([c["close"] for c in candles])
+			highs = np.array([c["high"] for c in candles])
+			lows = np.array([c["low"] for c in candles])
+
+			# Align all to X size
+			common_size = min(len(closes), len(highs), len(lows), len(X))
+			if common_size > 20:
+				# Regime classification logic:
+				# - Calculate returns, volatility, momentum
+				returns_tail = (closes[-common_size:] - np.roll(closes[-common_size:], 1))[1:]
+				volatility_tail = (highs[-common_size:] - lows[-common_size:])[1:]
+				trend_tail = np.sign(np.convolve(returns_tail, np.ones(3)/3, mode='same'))
+
+				# Simple regime assignment:
+				# TRENDING_UP (3), TRENDING_DOWN (0), RANGING (1), CHAOTIC (2)
+				y_regimes = np.ones(len(returns_tail), dtype=int)
+				high_vol = volatility_tail > np.percentile(volatility_tail, 75)
+
+				for i in range(len(returns_tail)):
+					if high_vol[i]:
+						y_regimes[i] = 2  # CHAOTIC
+					elif trend_tail[i] > 0.5:
+						y_regimes[i] = 3  # TRENDING_UP
+					elif trend_tail[i] < -0.5:
+						y_regimes[i] = 0  # TRENDING_DOWN
+					# else: RANGING (1)
+
+				X_trimmed = X[-(len(y_regimes)):]
+				if len(y_regimes) == len(X_trimmed):
+					regime_clf = RegimeClassifier()
+					regime_clf.set_feature_names(feature_names)
+					print(f"[regime_classifier] Training with {len(y_regimes)} samples", flush=True)
+					regime_clf.train(X_trimmed, y_regimes)
+
+					self.registry.save_and_activate(
+						regime_clf, asset, timeframe,
+						metrics={"status": "trained", "samples": len(y_regimes)},
+						algorithm="regime_classifier",
+						model_key="regime_classifier",
+					)
+					models_trained.append("regime_classifier")
+					print(f"[regime_classifier] ✅ Training complete", flush=True)
+		except Exception as e:
+			import traceback
+			results["regime_classifier_error"] = str(e)
+			print(f"[regime_classifier] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
+
+		# Phase C: Train HMMRegimeModel (hmmlearn)
+		try:
+			# Use returns as primary feature for HMM
+			closes = np.array([c["close"] for c in candles])
+			returns = np.diff(closes) / closes[:-1]  # Simple returns
+			common_size = min(len(returns), len(X))
+
+			if common_size > 30:
+				returns_tail = returns[-common_size:]
+				X_trimmed = X[-common_size:]
+
+				hmm_model = HMMRegimeModel(n_states=3)
+				hmm_model.set_feature_names(feature_names)
+				print(f"[hmm_regime] Training with {common_size} samples", flush=True)
+				hmm_model.train(X_trimmed)  # HMM is unsupervised, y is not used
+
+				self.registry.save_and_activate(
+					hmm_model, asset, timeframe,
+					metrics={"status": "trained", "samples": common_size},
+					algorithm="hmm_regime",
+					model_key="hmm_regime",
+				)
+				models_trained.append("hmm_regime")
+				print(f"[hmm_regime] ✅ Training complete", flush=True)
+		except Exception as e:
+			import traceback
+			results["hmm_regime_error"] = str(e)
+			print(f"[hmm_regime] ❌ Training error: {type(e).__name__}: {e}", flush=True)
 			traceback.print_exc()
 
 		# Aggregate feature importances from models that have them
