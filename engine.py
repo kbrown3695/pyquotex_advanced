@@ -165,8 +165,8 @@ except Exception as e:
 # ✅ تحسين #5: أوقات مخفضة
 TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
 PING_INTERVAL         = 60   # ثانية — كان 180
-RESUB_INTERVAL        = 60   # ✅ جديد: إعادة اشتراك دورية
-HARD_PING_INTERVAL    = 60   # ✅ جديد: ping بـ get_balance
+RESUB_INTERVAL        = 30   # ✅ جديد: إعادة اشتراك دورية (reduced to 30s for training stability)
+HARD_PING_INTERVAL    = 30   # ✅ جديد: ping بـ get_balance (reduced to 30s for training stability)
 EMPTY_TICK_RESUB_THRESHOLD = 20  # ✅ Increased from 15, more conservative
 MAX_CONSECUTIVE_EMPTY = 50   # ✅ Max before giving up on asset switch
 
