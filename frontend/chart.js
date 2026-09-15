@@ -466,7 +466,9 @@ function initChartManager() {
         try {
             window.CM = new ChartManager();
             setupChartInteractions();
-            console.log('✅ ChartManager initialized with improvements');
+            // ✅ Register main chart as sync source for oscillators
+            window.CM._sync(window.chart);
+            console.log('✅ ChartManager initialized with scroll synchronization');
             return true;
         } catch(e) { console.error('❌ ChartManager init failed:', e); return false; }
     }

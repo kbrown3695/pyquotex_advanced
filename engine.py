@@ -15,6 +15,7 @@ Quotex Pro Trader — EEL + ASYNCIO STABLE v3.3 (COUNTDOWN FIX)
 import warnings
 warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.*")
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+warnings.filterwarnings("ignore", category=UserWarning)  # Suppress all UserWarnings from dependencies
 
 import asyncio
 import threading
