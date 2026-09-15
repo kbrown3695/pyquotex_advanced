@@ -2154,6 +2154,257 @@ Indicators.SMA100 = class extends IndicatorBase {
 };
 `;
 
+// MACD Oscillator
+const TPL_MACD = `
+Indicators.MACD = class extends IndicatorBase {
+    constructor() {
+        super({ type: 'pane' });
+        this.settings = {
+            fastPeriod: 12,
+            slowPeriod: 26,
+            signalPeriod: 9,
+            macdColor: '#60a5fa',
+            signalColor: '#f59e0b',
+            histColor: '#00C510'
+        };
+        this._macdLine = null;
+        this._signalLine = null;
+        this._histSeries = null;
+    }
+
+    init(cm) {
+        super.init(cm);
+        this._macdLine = this.createPaneLine('macd_pane', 'MACD', {
+            color: this.settings.macdColor,
+            lineWidth: 2,
+            title: 'MACD'
+        });
+        this._signalLine = this.createPaneLine('macd_pane', 'MACD', {
+            color: this.settings.signalColor,
+            lineWidth: 1,
+            lineStyle: 1,
+            title: 'Signal'
+        });
+        this._histSeries = this.createPaneHistogram('macd_pane', 'MACD Histogram', {
+            color: this.settings.histColor,
+            title: 'Histogram'
+        });
+    }
+
+    calculateEMA(prices, period) {
+        if (prices.length < 2) return prices.slice();
+        const ema = [prices[0]];
+        const k = 2 / (period + 1);
+        for (let i = 1; i < prices.length; i++) {
+            ema.push(ema[i-1] * (1-k) + prices[i] * k);
+        }
+        return ema;
+    }
+
+    update(candles) {
+        if (!candles || candles.length < this.settings.slowPeriod) return;
+
+        const closes = candles.map(c => c.close);
+        const ema12 = this.calculateEMA(closes, this.settings.fastPeriod);
+        const ema26 = this.calculateEMA(closes, this.settings.slowPeriod);
+
+        const macdLine = [];
+        for (let i = 0; i < ema26.length; i++) {
+            macdLine.push(ema12[i + (ema12.length - ema26.length)] - ema26[i]);
+        }
+
+        const signalLine = this.calculateEMA(macdLine, this.settings.signalPeriod);
+
+        const macdData = [];
+        const signalData = [];
+        const histData = [];
+
+        for (let i = 0; i < signalLine.length; i++) {
+            const candleIdx = i + (macdLine.length - signalLine.length);
+            const time = candles[candleIdx].time;
+            const macd = macdLine[candleIdx];
+            const signal = signalLine[i];
+            const hist = macd - signal;
+
+            macdData.push({ time, value: macd });
+            signalData.push({ time, value: signal });
+            histData.push({ time, value: hist, color: hist > 0 ? this.settings.histColor : '#ff0000' });
+        }
+
+        if (macdData.length > 0) {
+            this._macdLine?.setData(macdData);
+            this._signalLine?.setData(signalData);
+            this._histSeries?.setData(histData);
+        }
+        this._initialized = true;
+    }
+
+    destroy() {
+        this._macdLine = null;
+        this._signalLine = null;
+        this._histSeries = null;
+        super.destroy();
+    }
+};
+`;
+
+// ADX Oscillator
+const TPL_ADX = `
+Indicators.ADX = class extends IndicatorBase {
+    constructor() {
+        super({ type: 'pane' });
+        this.settings = {
+            period: 14,
+            adxColor: '#8b5cf6',
+            plusDIColor: '#00C510',
+            minusDIColor: '#ff0000'
+        };
+        this._adxLine = null;
+        this._plusDI = null;
+        this._minusDI = null;
+    }
+
+    init(cm) {
+        super.init(cm);
+        this._adxLine = this.createPaneLine('adx_pane', 'ADX', {
+            color: this.settings.adxColor,
+            lineWidth: 2,
+            title: 'ADX'
+        });
+        this._plusDI = this.createPaneLine('adx_pane', 'ADX', {
+            color: this.settings.plusDIColor,
+            lineWidth: 1,
+            title: '+DI'
+        });
+        this._minusDI = this.createPaneLine('adx_pane', 'ADX', {
+            color: this.settings.minusDIColor,
+            lineWidth: 1,
+            title: '-DI'
+        });
+    }
+
+    update(candles) {
+        if (!candles || candles.length < this.settings.period + 1) return;
+
+        const highs = candles.map(c => c.high);
+        const lows = candles.map(c => c.low);
+        const closes = candles.map(c => c.close);
+
+        const tr = [], plusDM = [], minusDM = [];
+        for (let i = 1; i < candles.length; i++) {
+            const h = highs[i], l = lows[i], pc = closes[i-1];
+            tr.push(Math.max(h-l, Math.abs(h-pc), Math.abs(l-pc)));
+
+            const ph = highs[i-1], pl = lows[i-1];
+            const upMove = h - ph;
+            const downMove = pl - l;
+
+            plusDM.push((upMove > downMove && upMove > 0) ? upMove : 0);
+            minusDM.push((downMove > upMove && downMove > 0) ? downMove : 0);
+        }
+
+        const adxData = [], pdiData = [], mdiData = [];
+        const period = this.settings.period;
+
+        for (let i = period - 1; i < tr.length; i++) {
+            const trAvg = tr.slice(Math.max(0, i-period+1), i+1).reduce((a,b)=>a+b)/Math.min(period, i+1);
+            const pdm = plusDM.slice(Math.max(0, i-period+1), i+1).reduce((a,b)=>a+b)/Math.min(period, i+1);
+            const mdm = minusDM.slice(Math.max(0, i-period+1), i+1).reduce((a,b)=>a+b)/Math.min(period, i+1);
+
+            const pdi = (trAvg > 0) ? (pdm / trAvg) * 100 : 0;
+            const mdi = (trAvg > 0) ? (mdm / trAvg) * 100 : 0;
+            const dx = (pdi + mdi > 0) ? (Math.abs(pdi - mdi) / (pdi + mdi)) * 100 : 0;
+
+            if (i < period + period - 1) {
+                const adx = Math.min(100, Math.max(0, dx));
+                adxData.push({ time: candles[i].time, value: adx });
+                pdiData.push({ time: candles[i].time, value: pdi });
+                mdiData.push({ time: candles[i].time, value: mdi });
+            }
+        }
+
+        if (adxData.length > 0) {
+            this._adxLine?.setData(adxData);
+            this._plusDI?.setData(pdiData);
+            this._minusDI?.setData(mdiData);
+        }
+        this._initialized = true;
+    }
+
+    destroy() {
+        this._adxLine = null;
+        this._plusDI = null;
+        this._minusDI = null;
+        super.destroy();
+    }
+};
+`;
+
+// Awesome Oscillator
+const TPL_AO = `
+Indicators.AwesomeOscillator = class extends IndicatorBase {
+    constructor() {
+        super({ type: 'pane' });
+        this.settings = {
+            fastPeriod: 5,
+            slowPeriod: 34,
+            bullColor: '#00C510',
+            bearColor: '#ff0000'
+        };
+        this._aoSeries = null;
+    }
+
+    init(cm) {
+        super.init(cm);
+        this._aoSeries = this.createPaneHistogram('ao_pane', 'Awesome Oscillator', {
+            color: this.settings.bullColor,
+            title: 'AO'
+        });
+    }
+
+    calculateSMA(prices, period) {
+        if (prices.length < period) return [];
+        const sma = [];
+        for (let i = period - 1; i < prices.length; i++) {
+            const sum = prices.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+            sma.push(sum / period);
+        }
+        return sma;
+    }
+
+    update(candles) {
+        if (!candles || candles.length < this.settings.slowPeriod) return;
+
+        const hl2 = candles.map(c => (c.high + c.low) / 2);
+        const fast = this.calculateSMA(hl2, this.settings.fastPeriod);
+        const slow = this.calculateSMA(hl2, this.settings.slowPeriod);
+
+        const aoData = [];
+        const offset = hl2.length - slow.length;
+
+        for (let i = 0; i < slow.length; i++) {
+            const ao = fast[i + offset] - slow[i];
+            const color = ao > 0 ? this.settings.bullColor : this.settings.bearColor;
+            aoData.push({
+                time: candles[i + offset].time,
+                value: ao,
+                color: color
+            });
+        }
+
+        if (aoData.length > 0) {
+            this._aoSeries?.setData(aoData);
+        }
+        this._initialized = true;
+    }
+
+    destroy() {
+        this._aoSeries = null;
+        super.destroy();
+    }
+};
+`;
+
 const TEMPLATES = {
     configurableMA: {
         name: 'ConfigurableMA',
@@ -2240,6 +2491,24 @@ CONFIGURABLE MOVING AVERAGE SETTINGS:
         type: 'ov',
         code: TPL_AREA,
         description: 'Area Fill - Visual display of averages with colored zones'
+    },
+    macd: {
+        name: 'MACD',
+        type: 'pane',
+        code: TPL_MACD,
+        description: 'MACD (Moving Average Convergence Divergence) - Momentum indicator with signal line and histogram'
+    },
+    adx: {
+        name: 'ADX',
+        type: 'pane',
+        code: TPL_ADX,
+        description: 'ADX (Average Directional Index) - Trend strength and direction with +DI/-DI'
+    },
+    ao: {
+        name: 'AwesomeOscillator',
+        type: 'pane',
+        code: TPL_AO,
+        description: 'Awesome Oscillator - Market momentum using SMA(HL/2, 5) - SMA(HL/2, 34)'
     },
     custom: {
         name: 'MyCustomIndicator',
