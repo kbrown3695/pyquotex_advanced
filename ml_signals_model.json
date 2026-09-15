@@ -1,6 +1,6 @@
 {
-  "timestamp": 1789455737.7196128,
-  "training_date": "2026-09-15 10:02:17",
+  "timestamp": 1789455997.432895,
+  "training_date": "2026-09-15 10:06:37",
   "result": {
     "status": "trained",
     "accuracy": null,
@@ -16,7 +16,9 @@
       "gradient_boosting_return",
       "volatility",
       "quantile_upper",
-      "quantile_lower"
+      "quantile_lower",
+      "regime_classifier",
+      "hmm_regime"
     ]
   },
   "model_status": {
@@ -32,7 +34,7 @@
   },
   "summary": {
     "total_models": 9,
-    "trained": 9,
+    "trained": 11,
     "failed": 0
   }
 }

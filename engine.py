@@ -1266,7 +1266,8 @@ def save_ml_models(training_result: Dict) -> bool:
         all_models = [
             'ensemble', 'kalman', 'expected_return', 'probability',  # Phase A
             'gradient_boosting_directional', 'gradient_boosting_return',  # Phase B
-            'volatility', 'quantile_upper', 'quantile_lower'  # Phase B
+            'volatility', 'quantile_upper', 'quantile_lower',  # Phase B
+            'regime_classifier', 'hmm_regime'  # Phase C
         ]
 
         for model in all_models:
