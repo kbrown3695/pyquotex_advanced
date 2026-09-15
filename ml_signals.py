@@ -367,7 +367,65 @@ class MomentumSignalGenerator:
             rsi_score * 0.10        # RSI: overbought/oversold extremes
         )
 
-        # Convert to signal
+        # === MULTI-LAYER CONFIDENCE CALCULATION ===
+        # Layer 1: Oscillator Agreement (how many agree with the signal?)
+        agree_count = 0
+        if macd_score != 0 and np.sign(score) == np.sign(macd_score):
+            agree_count += 1
+        if ao_score != 0 and np.sign(score) == np.sign(ao_score):
+            agree_count += 1
+        if trend_score != 0 and np.sign(score) == np.sign(trend_score):
+            agree_count += 1
+        if adx_score != 0 and np.sign(score) == np.sign(adx_score):
+            agree_count += 1
+        if rsi_score != 0 and np.sign(score) == np.sign(rsi_score):
+            agree_count += 1
+
+        agreement_factor = agree_count / 5.0  # 0.0 to 1.0
+
+        # Layer 2: Trend Strength Multiplier (ADX-based)
+        if adx > 25:
+            trend_strength_factor = 1.2  # Strong trend
+        elif adx > 20:
+            trend_strength_factor = 1.0
+        elif adx > 15:
+            trend_strength_factor = 0.8
+        else:
+            trend_strength_factor = 0.6  # Weak trend
+
+        # Layer 3: RSI Extreme Confirmation
+        if (score > 0 and rsi > 65) or (score < 0 and rsi < 35):
+            rsi_extreme_factor = 1.1
+        else:
+            rsi_extreme_factor = 1.0
+
+        # Layer 4: Momentum Acceleration
+        if len(candles) > 3:
+            prev_macd = features['macd_hist'][-2] if len(features['macd_hist']) > 1 else 0
+            if (macd_hist != 0 and prev_macd != 0 and np.sign(macd_hist) == np.sign(prev_macd)):
+                if abs(macd_hist) > abs(prev_macd):
+                    momentum_factor = 1.15
+                else:
+                    momentum_factor = 1.0
+            else:
+                momentum_factor = 1.0
+        else:
+            momentum_factor = 1.0
+
+        # Calculate final confidence
+        base_confidence = abs(score)
+        confidence = min(
+            base_confidence * agreement_factor * trend_strength_factor * rsi_extreme_factor * momentum_factor,
+            1.0
+        )
+
+        # Add diagnostic info
+        components['agreement_count'] = agree_count
+        components['agreement_factor'] = round(agreement_factor, 2)
+        components['trend_strength_factor'] = round(trend_strength_factor, 2)
+        components['momentum_factor'] = round(momentum_factor, 2)
+
+        # Convert to signal with improved reason
         macd_dir = 'UP' if macd_score > 0 else 'DOWN'
         ao_dir = 'UP' if ao_score > 0 else 'DOWN'
         trend_dir = 'UP' if trend_score > 0 else ('DOWN' if trend_score < 0 else 'FLAT')
@@ -375,24 +433,19 @@ class MomentumSignalGenerator:
 
         if score > 0.4:
             side = 'BUY'
-            confidence = min(score, 1.0)
-            reason = f"Strong BUY | ADX={adx:.0f} ({di_dir}), MACD {macd_dir}, AO {ao_dir}"
+            reason = f"Strong BUY | ADX={adx:.0f} ({di_dir}), MACD {macd_dir}, AO {ao_dir} | Agree:{agree_count}/5"
         elif score > 0.15:
             side = 'BUY'
-            confidence = score
-            reason = f"Weak BUY | RSI={rsi:.0f}, Trend {trend_dir}"
+            reason = f"Weak BUY | RSI={rsi:.0f}, Trend {trend_dir} | Agree:{agree_count}/5"
         elif score < -0.4:
             side = 'SELL'
-            confidence = min(abs(score), 1.0)
-            reason = f"Strong SELL | ADX={adx:.0f} ({di_dir}), MACD {macd_dir}, AO {ao_dir}"
+            reason = f"Strong SELL | ADX={adx:.0f} ({di_dir}), MACD {macd_dir}, AO {ao_dir} | Agree:{agree_count}/5"
         elif score < -0.15:
             side = 'SELL'
-            confidence = abs(score)
-            reason = f"Weak SELL | RSI={rsi:.0f}, Trend {trend_dir}"
+            reason = f"Weak SELL | RSI={rsi:.0f}, Trend {trend_dir} | Agree:{agree_count}/5"
         else:
             side = 'BUY' if score > 0 else 'SELL'
-            confidence = abs(score) * 0.5
-            reason = f"Neutral | Score={score:.2f}"
+            reason = f"Neutral | Score={score:.2f} | Agree:{agree_count}/5"
 
         return SignalResult(side, confidence, reason, 'momentum', components)
 
