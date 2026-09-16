@@ -366,7 +366,7 @@ function updateSignalPairDisplay() {
                 componentsHTML = '<div class="signal-pair-components"><strong>Components:</strong><br>';
                 try {
                     for (const [key, value] of Object.entries(signal.components)) {
-                        if (typeof value === 'object' && value.p_up !== undefined) {
+                        if (value && typeof value === 'object' && value.p_up !== undefined) {
                             componentsHTML += `${key}: ${(value.p_up * 100).toFixed(0)}% | `;
                         } else if (typeof value === 'number') {
                             componentsHTML += `${key}: ${value.toFixed(4)} | `;
