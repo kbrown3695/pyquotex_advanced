@@ -25,6 +25,7 @@ from ml.models.volatility_model import VolatilityModel
 from ml.models.quantile_model import QuantileModel
 from ml.models.regime_classifier import RegimeClassifier
 from ml.models.hmm_regime_model import HMMRegimeModel
+from ml.models.rl_agent import RLAgent
 
 
 class MLSignalService:
@@ -377,6 +378,27 @@ class MLSignalService:
 			print(f"[hmm_regime] ❌ Training error: {type(e).__name__}: {e}", flush=True)
 			traceback.print_exc()
 
+		# Phase D: Train RLAgent (PyTorch REINFORCE)
+		try:
+			rl_agent = RLAgent(input_dim=X.shape[1], hidden_dim=64)
+			rl_agent.set_feature_names(feature_names)
+			print(f"[rl_agent] Training with {len(X)} samples (input_dim={X.shape[1]})", flush=True)
+			rl_agent.train(X, y)
+
+			self.registry.save_and_activate(
+				rl_agent, asset, timeframe,
+				metrics={"status": "trained", "samples": len(X)},
+				algorithm="rl_agent",
+				model_key="rl_agent",
+			)
+			models_trained.append("rl_agent")
+			print(f"[rl_agent] ✅ Training complete", flush=True)
+		except Exception as e:
+			import traceback
+			results["rl_agent_error"] = str(e)
+			print(f"[rl_agent] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
+
 		# Aggregate feature importances from models that have them
 		feature_importances = {}
 		for model_name in models_trained:
@@ -459,7 +481,7 @@ class MLSignalService:
 
 		features_array = features_array.reshape(1, -1)
 
-		# Get predictions from all Phase A + Phase B models
+		# Get predictions from all Phase A + Phase B + Phase D models
 		ensemble_proba = None
 		kalman_proba = None
 		expected_return_proba = None
@@ -471,6 +493,7 @@ class MLSignalService:
 		volatility_pred = None
 		quantile_upper_pred = None
 		quantile_lower_pred = None
+		rl_agent_proba = None
 
 		# Ensemble prediction (Phase A)
 		try:
@@ -563,6 +586,16 @@ class MLSignalService:
 		except Exception:
 			pass
 
+		# RLAgent prediction (Phase D)
+		try:
+			rl_model = self.registry.get_active_model(
+				asset, timeframe, model_key="rl_agent"
+			)
+			if rl_model:
+				rl_agent_proba = rl_model.predict_proba(features_array)
+		except Exception:
+			pass
+
 		# Aggregate all predictions
 		signal = self.aggregator.aggregate(
 			ensemble_proba=ensemble_proba,
@@ -576,6 +609,7 @@ class MLSignalService:
 			volatility_pred=volatility_pred,
 			quantile_upper_pred=quantile_upper_pred,
 			quantile_lower_pred=quantile_lower_pred,
+			rl_agent_proba=rl_agent_proba,
 		)
 
 		return signal

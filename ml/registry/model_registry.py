@@ -19,6 +19,9 @@ from ml.models.expected_return_model import ExpectedReturnModel
 from ml.models.probability_model import ProbabilityModel
 from ml.models.regime_classifier import RegimeClassifier
 from ml.models.hmm_regime_model import HMMRegimeModel
+from ml.models.volatility_model import VolatilityModel
+from ml.models.quantile_model import QuantileModel
+from ml.models.rl_agent import RLAgent
 
 
 class ModelRegistry:
@@ -47,6 +50,9 @@ class ModelRegistry:
             "ProbabilityModel": ProbabilityModel,
             "RegimeClassifier": RegimeClassifier,
             "HMMRegimeModel": HMMRegimeModel,
+            "VolatilityModel": VolatilityModel,
+            "QuantileModel": QuantileModel,
+            "RLAgent": RLAgent,
         }
 
     def _slugify(self, asset: str, timeframe: str, model_key: str = "default") -> str:

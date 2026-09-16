@@ -87,9 +87,11 @@ class MultiModelAggregator:
 		kalman_proba: Optional[np.ndarray] = None,
 		expected_return_proba: Optional[np.ndarray] = None,
 		probability_proba: Optional[np.ndarray] = None,
+		rl_agent_proba: Optional[np.ndarray] = None,
 		kalman_weight: float = 0.33,
-		expected_return_weight: float = 0.33,
-		probability_weight: float = 0.34,
+		expected_return_weight: float = 0.25,
+		probability_weight: float = 0.25,
+		rl_agent_weight: float = 0.17,
 	) -> Tuple[float, Dict[str, Any]]:
 		"""Blend advanced (non-sklearn) model predictions with configurable weights.
 
@@ -97,15 +99,17 @@ class MultiModelAggregator:
 			kalman_proba: (n_samples, 2) Kalman predict_proba output
 			expected_return_proba: (n_samples, 3) ExpectedReturn placeholder output
 			probability_proba: (n_samples, 2) Probability calibrated output
+			rl_agent_proba: (n_samples, 2) RLAgent policy predictions (Phase D+)
 			kalman_weight: relative weight for Kalman (0-1)
 			expected_return_weight: relative weight for ExpectedReturn (0-1)
 			probability_weight: relative weight for Probability (0-1)
+			rl_agent_weight: relative weight for RLAgent (0-1)
 
 		Returns:
 			Tuple of (blended_p_up, components_dict)
 		"""
 		components = {}
-		weights_sum = kalman_weight + expected_return_weight + probability_weight
+		weights_sum = kalman_weight + expected_return_weight + probability_weight + rl_agent_weight
 
 		if weights_sum == 0:
 			return 0.5, components
@@ -114,6 +118,7 @@ class MultiModelAggregator:
 		k_w = kalman_weight / weights_sum
 		e_w = expected_return_weight / weights_sum
 		p_w = probability_weight / weights_sum
+		r_w = rl_agent_weight / weights_sum
 
 		p_up_sum = 0.0
 		count = 0
@@ -137,6 +142,12 @@ class MultiModelAggregator:
 			count += 1
 			components["probability"] = {"p_up": p_up}
 
+		if rl_agent_proba is not None and len(rl_agent_proba) > 0:
+			p_up = float(rl_agent_proba[-1, 1])
+			p_up_sum += r_w * p_up
+			count += 1
+			components["rl_agent"] = {"p_up": p_up}
+
 		if count == 0:
 			return 0.5, components
 
@@ -155,11 +166,13 @@ class MultiModelAggregator:
 		volatility_pred: Optional[np.ndarray] = None,
 		quantile_upper_pred: Optional[np.ndarray] = None,
 		quantile_lower_pred: Optional[np.ndarray] = None,
+		rl_agent_proba: Optional[np.ndarray] = None,
 	) -> SignalResult:
 		"""Aggregate all model outputs into a single SignalResult.
 
 		Phase A: uses ensemble + advanced (Kalman, ExpectedReturn, Probability)
 		Phase B: adds gradient boosting models + volatility/quantile dampening
+		Phase D: adds RLAgent policy gradient predictions
 
 		Args:
 			ensemble_proba: from EnsembleModel/DirectionalClassifier
@@ -173,6 +186,7 @@ class MultiModelAggregator:
 			volatility_pred: from VolatilityModel.predict()
 			quantile_upper_pred: from QuantileModel(0.75).predict()
 			quantile_lower_pred: from QuantileModel(0.25).predict()
+			rl_agent_proba: from RLAgent.predict_proba() (Phase D)
 
 		Returns:
 			SignalResult with side, confidence, reason, method, components
@@ -180,11 +194,12 @@ class MultiModelAggregator:
 		# Layer 1: sklearn ensemble
 		p_up_ensemble, components_ensemble = self.blend_ensemble(ensemble_proba)
 
-		# Layer 2: advanced models (Phase A + Phase B)
+		# Layer 2: advanced models (Phase A + Phase B + Phase D)
 		p_up_advanced, components_advanced = self.blend_advanced(
 			kalman_proba=kalman_proba,
 			expected_return_proba=expected_return_proba,
 			probability_proba=probability_proba,
+			rl_agent_proba=rl_agent_proba,
 		)
 
 		# Layer 2b: gradient boosting models (Phase B)
