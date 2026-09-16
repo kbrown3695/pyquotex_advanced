@@ -242,10 +242,11 @@ User enables "AwesomeOscillator"
 - User has no feedback
 - **Fix:** Add toast notifications
 
-### 2. Incomplete ML Integration
-- ML signals generated but not fully wired to UI
-- UI has ml_signals.js module but not fully connected
-- **Fix:** Wire up `get_ml_signal()` endpoint to UI
+### 2. ✅ ML Signals Integration [FIXED 2026-09-16]
+- ✅ ML signals now fully wired to UI
+- ✅ Signals displayed as visual markers on chart
+- ✅ Auto-update on asset/timeframe change
+- ✅ See: [ML_SIGNALS_INTEGRATION.md](ML_SIGNALS_INTEGRATION.md)
 
 ### 3. Rate Limiting & Performance
 - Rate-limited send_to_ui (500ms max) prevents jitter
@@ -322,9 +323,9 @@ User enables "AwesomeOscillator"
 |---------|--------|-------|
 | **Real-time charting** | ✅ Working | A |
 | **Multi-asset support** | ✅ Working | A |
-| **Timeframe switching** | ⚠️ Partial (1m-1h only) | C |
+| **Timeframe switching** | ✅ All timeframes (5s-4h) | A |
 | **Technical indicators** | ✅ Working | A |
-| **ML signals** | ⚠️ Code done, UI incomplete | B |
+| **ML signals** | ✅ Fully integrated with chart | A |
 | **Alert system** | ❌ Not implemented | F |
 | **Trade execution** | ❌ Read-only (no orders) | F |
 | **Backtesting** | ❌ Not implemented | F |
@@ -488,16 +489,18 @@ python engine.py
 | **Test Coverage** | 2/10 | Minimal tests (future priority) |
 | **Performance** | 8/10 | Fast, optimized for real-time |
 | **Security** | 5/10 | Good for local use, review needed for deployment |
-| **Feature Completeness** | 8/10 | Core features working, all timeframes supported ✅ |
+| **Feature Completeness** | 9/10 | All core features implemented (charting, indicators, ML) ✅ |
 | **Production Readiness** | 7/10 | Critical issues fixed, ready for paper trading |
 | **Learning Value** | 9/10 | Excellent teaching project |
-| **Usability** | 8/10 | Intuitive UI, good UX, indicators work seamlessly |
-| **Overall** | **7.4/10** | **Fully functional, excellent learning platform** |
+| **Usability** | 9/10 | Intuitive UI, signals on chart, indicators responsive |
+| **Overall** | **7.6/10** | **Fully functional with ML signals, excellent platform** |
 
-**Improvement from previous evaluation:** +1.1 points  
+**Improvement from previous evaluation:** +1.3 points  
 - All critical blocker issues resolved ✅
+- ML signals fully integrated with chart ✅
 - Better error handling and diagnostics
 - Oscillators fully integrated
+- Feature completeness improved 8→9/10
 
 ---
 
