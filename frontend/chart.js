@@ -411,6 +411,8 @@ class ChartManager {
 
         const mainHeight = mainEl.clientHeight;
         const mainPS = mainChart.priceScale('right');
+        if (!mainPS || typeof mainPS.getVisibleRange !== 'function') return;
+
         let mainRange = mainPS.getVisibleRange();
         if (!mainRange) return;
 
@@ -424,6 +426,8 @@ class ChartManager {
             const paneChart = paneData.chart;
             const paneHeight = paneEl.clientHeight;
             const panePS = paneChart.priceScale('right');
+            if (!panePS || typeof panePS.getVisibleRange !== 'function') return;
+
             let paneRange = panePS.getVisibleRange();
             if (!paneRange) return;
 
@@ -507,9 +511,12 @@ function initChartManager() {
             // ✅ Register main chart as sync source for oscillators
             window.CM._sync(window.chart);
             // ✅ Sync oscillator price scales proportionally to main chart
-            window.chart.priceScale('right').subscribeVisibleRangeChange(() => {
-                window.CM._syncPriceScalesProportional();
-            });
+            const ps = window.chart.priceScale('right');
+            if (ps && typeof ps.subscribeVisibleRangeChange === 'function') {
+                ps.subscribeVisibleRangeChange(() => {
+                    window.CM._syncPriceScalesProportional();
+                });
+            }
             console.log('✅ ChartManager initialized with scroll & proportional price scale sync');
             return true;
         } catch(e) { console.error('❌ ChartManager init failed:', e); return false; }
