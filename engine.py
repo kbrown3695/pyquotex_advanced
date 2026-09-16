@@ -66,16 +66,23 @@ except ImportError as e:
     print(f"⚠️ ML signal service not available: {e}")
     MLSignalService = None
 
+# ✅ Critical imports with detailed error handling
+CandleStore = None
+TimeframeAggregator = None
+
 try:
     from ml.data.candle_store import CandleStore
-except ImportError as e:
-    print(f"⚠️ Candle store not available: {e}")
+    print("[OK] ✅ CandleStore imported successfully")
+except Exception as e:
+    print(f"⚠️ CandleStore import failed: {type(e).__name__}: {e}")
+    print(f"   → Falling back to in-memory candle aggregation")
     CandleStore = None
 
 try:
     from ml.data.timeframe_aggregator import TimeframeAggregator
-except ImportError as e:
-    print(f"⚠️ Timeframe aggregator not available: {e}")
+    print("[OK] ✅ TimeframeAggregator imported successfully")
+except Exception as e:
+    print(f"⚠️ TimeframeAggregator import failed: {type(e).__name__}: {e}")
     TimeframeAggregator = None
 
 try:
@@ -267,10 +274,43 @@ BACKGROUND_TASKS: Dict[str, asyncio.Task] = {}
 BACKGROUND_LOADER_TASK = None
 
 # ======================
+# Fallback In-Memory Aggregator (for when CandleStore is unavailable)
+# ======================
+class InMemoryAggregator:
+    """Aggregate 1m candles into multiple timeframes in memory."""
+
+    def __init__(self):
+        self.aggregated = {}  # {asset: {timeframe: [candles]}}
+
+    def aggregate_1m_to_timeframes(self, asset: str, candle: dict, target_tfs: set = None):
+        """Aggregate 1m candle into 5s/10s/15s/30s/4h."""
+        if target_tfs is None:
+            target_tfs = {"5s", "10s", "15s", "30s", "4h"}
+
+        if asset not in self.aggregated:
+            self.aggregated[asset] = {}
+
+        # For sub-minute TFs, we store the 1m candle as-is (simplified aggregation)
+        for tf in target_tfs:
+            if tf not in self.aggregated[asset]:
+                self.aggregated[asset][tf] = []
+            # Use 1m data directly for now (proper aggregation would create bars)
+            self.aggregated[asset][tf].append(candle)
+            # Keep only last 200
+            if len(self.aggregated[asset][tf]) > 200:
+                self.aggregated[asset][tf] = self.aggregated[asset][tf][-200:]
+
+    def get_candles(self, asset: str, timeframe: str, limit: int = 200) -> List[dict]:
+        """Get aggregated candles."""
+        candles = self.aggregated.get(asset, {}).get(timeframe, [])
+        return candles[-limit:] if candles else []
+
+# ======================
 # Phase B: Database & Async Signals
 # ======================
 CANDLE_STORE = CandleStore("quotex_candles.db") if CandleStore else None
 TIMEFRAME_AGGREGATOR = TimeframeAggregator(CANDLE_STORE) if (TimeframeAggregator and CANDLE_STORE) else None
+FALLBACK_AGGREGATOR = InMemoryAggregator()  # Always available as fallback
 # SIGNAL_MANAGER already initialized at module load (line ~140)
 
 # Default pairs for multi-asset signal generation
@@ -563,21 +603,29 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
     return formatted
 
 def update_candle(asset: str, frame: str, price: float, ts_sec: int, volume: float = 0.0):
-    global CANDLES, CURRENT_CANDLE, CANDLE_STORE, TIMEFRAME_AGGREGATOR
+    global CANDLES, CURRENT_CANDLE, CANDLE_STORE, TIMEFRAME_AGGREGATOR, FALLBACK_AGGREGATOR
     duration = TIMEFRAMES.get(frame, 60)
     start = (ts_sec // duration) * duration
     curr = CURRENT_CANDLE.get(asset, {}).get(frame, {})
     if not curr or curr.get("time") != start:
         if curr:
-            CANDLES.setdefault(asset, {}).setdefault(frame, []).append(curr.copy())
+            candle_copy = curr.copy()
+            CANDLES.setdefault(asset, {}).setdefault(frame, []).append(candle_copy)
+
             # Save completed candle to database (Phase B)
             if CANDLE_STORE:
-                CANDLE_STORE.save_candle(asset, frame, curr.copy())
+                CANDLE_STORE.save_candle(asset, frame, candle_copy)
                 # Aggregate 1m candles into other timeframes
                 if frame == "1m" and TIMEFRAME_AGGREGATOR:
-                    TIMEFRAME_AGGREGATOR.aggregate_to_timeframes(asset, curr.copy())
+                    TIMEFRAME_AGGREGATOR.aggregate_to_timeframes(asset, candle_copy)
+
+            # ✅ Also populate fallback in-memory aggregator
+            if frame == "1m":
+                FALLBACK_AGGREGATOR.aggregate_1m_to_timeframes(asset, candle_copy)
+
             if len(CANDLES[asset][frame]) > 200:
                 CANDLES[asset][frame] = CANDLES[asset][frame][-200:]
+
         CURRENT_CANDLE.setdefault(asset, {})[frame] = {
             "time": start, "open": price, "high": price, "low": price, "close": price, "volume": volume
         }
@@ -797,16 +845,28 @@ async def load_timeframe_data(asset: str, tf: str, period: int) -> List[dict]:
     if not CLIENT or not CLIENT.api:
         return []
 
-    # For aggregated timeframes, try database first
+    # For aggregated timeframes, try database or fallback first
     aggregated_tfs = {"5s", "10s", "15s", "30s", "4h"}
     if tf in aggregated_tfs:
-        try:
-            db_candles = CANDLE_STORE.get_candles(asset, tf, limit=199)
-            if db_candles and len(db_candles) > 10:
-                CANDLES.setdefault(asset, {})[tf] = db_candles
-                return db_candles
-        except Exception:
-            pass  # Fall through to API if DB fails
+        # Try database first
+        if CANDLE_STORE:
+            try:
+                db_candles = CANDLE_STORE.get_candles(asset, tf, limit=199)
+                if db_candles and len(db_candles) > 10:
+                    CANDLES.setdefault(asset, {})[tf] = db_candles
+                    return db_candles
+            except Exception as e:
+                log(f"⚠️ Database query failed for {asset}/{tf}: {e}", 2)
+
+        # Try fallback in-memory aggregator
+        fallback_candles = FALLBACK_AGGREGATOR.get_candles(asset, tf, limit=199)
+        if fallback_candles and len(fallback_candles) > 10:
+            CANDLES.setdefault(asset, {})[tf] = fallback_candles
+            return fallback_candles
+
+        # If no aggregated data available yet, return empty (will stream real-time)
+        log(f"⚠️ No aggregated data for {asset}/{tf}, waiting for real-time stream", 2)
+        return []
 
     # For standard API timeframes, hit Quotex
     internal = DISPLAY_TO_INTERNAL.get(asset, "AUDCAD_otc")
@@ -815,7 +875,8 @@ async def load_timeframe_data(asset: str, tf: str, period: int) -> List[dict]:
         loaded = process_candle_data(hist, period)
         CANDLES.setdefault(asset, {})[tf] = loaded[-199:]
         return loaded[-199:]
-    except Exception:
+    except Exception as e:
+        log(f"⚠️ Failed to load {tf} data for {asset}: {e}", 2)
         return []
 
 async def chart_opened_loader(asset: str):

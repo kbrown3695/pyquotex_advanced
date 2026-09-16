@@ -118,7 +118,9 @@ const AppState = {
     debugMode: false,
     connectionHealthy: true,
     lastDataTime: Date.now(),
-    _eventListeners: []
+    _eventListeners: [],
+    // ✅ Track persistent indicators to restore after timeframe changes
+    persistentIndicators: new Set()
 };
 
 // Global handles
@@ -516,31 +518,59 @@ function updateChart(data) {
 
         // ✅ First Load: Initialize chart with full dataset
         if (AppState.isFirstLoad && window.candleSeries) {
-            try { 
+            try {
                 // Limit initial load for performance
                 const initialData = validCandles.slice(-CONFIG.MAX_CANDLES_DISPLAY);
-                window.candleSeries.setData(initialData); 
-            } catch(e) { 
+                window.candleSeries.setData(initialData);
+            } catch(e) {
                 console.warn('⚠️ Initial setData failed, trying fallback:', e);
                 if (AppState.currentCandles.length) {
-                    window.candleSeries.setData(AppState.currentCandles.slice(-CONFIG.MAX_CANDLES_FALLBACK)); 
+                    window.candleSeries.setData(AppState.currentCandles.slice(-CONFIG.MAX_CANDLES_FALLBACK));
                 }
             }
             if (lastCandle) updateCountdown(lastCandle);
             if (CM && typeof CM._scheduleResize === 'function') {
-                CM._scheduleResize(); 
+                CM._scheduleResize();
             }
             if (!AppState.isUserInteracting && window.chart) {
-                window.chart.timeScale().fitContent(); 
+                window.chart.timeScale().fitContent();
             }
+
             // Initialize indicators with snapshot
-            for (const inst of Object.values(AppState.indicators)) { 
-                try { 
-                    inst.update(candlesSnapshot); 
-                } catch(e) { 
-                    debugLog('⚠️ Indicator init error:', e); 
-                } 
+            for (const inst of Object.values(AppState.indicators)) {
+                try {
+                    inst.update(candlesSnapshot);
+                } catch(e) {
+                    debugLog('⚠️ Indicator init error:', e);
+                }
             }
+
+            // ✅ Restore persistent indicators (e.g., oscillators) after timeframe changes
+            if (AppState.persistentIndicators && AppState.persistentIndicators.size > 0) {
+                console.log(`🔄 Restoring ${AppState.persistentIndicators.size} persistent indicators...`);
+                for (const indicatorName of AppState.persistentIndicators) {
+                    try {
+                        // Find template for this indicator
+                        const templateKey = Object.keys(TEMPLATES).find(k => TEMPLATES[k].name === indicatorName);
+                        if (templateKey && TEMPLATES[templateKey]) {
+                            const template = TEMPLATES[templateKey];
+                            // Create and initialize the indicator with current data
+                            eval(template.code);
+                            const IndicatorClass = window.Indicators?.[indicatorName];
+                            if (IndicatorClass) {
+                                const inst = new IndicatorClass();
+                                inst.init(CM);
+                                inst.update(candlesSnapshot);
+                                AppState.indicators[indicatorName] = inst;
+                                console.log(`✅ Restored indicator: ${indicatorName}`);
+                            }
+                        }
+                    } catch(e) {
+                        console.warn(`⚠️ Failed to restore persistent indicator ${indicatorName}:`, e);
+                    }
+                }
+            }
+
             AppState.isFirstLoad = false;
             return;
         }

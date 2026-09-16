@@ -563,7 +563,16 @@ function runIndicator() {
         instance.init(manager);
         instance.update(AppState.currentCandles);
         AppState.indicators[name] = instance;
-        
+
+        // ✅ Track persistent indicators (built-in templates like AwesomeOscillator)
+        // so they can be restored after timeframe changes
+        const templateKey = Object.keys(TEMPLATES).find(k => TEMPLATES[k].name === name);
+        if (templateKey) {
+            AppState.persistentIndicators = AppState.persistentIndicators || new Set();
+            AppState.persistentIndicators.add(name);
+            console.log(`📌 Marking "${name}" as persistent indicator for timeframe changes`);
+        }
+
         // Update reverse mapping
         if (AppState.editorActive) {
             AppState.indicatorToFile = AppState.indicatorToFile || {};
@@ -643,13 +652,17 @@ function stopIndicator() {
     }
 }
 
-window.cleanupIndicator = function(name) { 
-    if (AppState.indicators[name]) { 
-        try { AppState.indicators[name].destroy(); } catch(e) { console.warn(`⚠️ Destroy failed: ${name}`, e); } 
+window.cleanupIndicator = function(name) {
+    if (AppState.indicators[name]) {
+        try { AppState.indicators[name].destroy(); } catch(e) { console.warn(`⚠️ Destroy failed: ${name}`, e); }
         delete AppState.indicators[name];
+        // ✅ Also remove from persistent indicators set
+        if (AppState.persistentIndicators) {
+            AppState.persistentIndicators.delete(name);
+        }
         if (AppState.indicatorToFile?.[name]) delete AppState.indicatorToFile[name];
-        if (CM) { CM.markMarkersDirty(); CM.updateAllMarkers(); } 
-    } 
+        if (CM) { CM.markMarkersDirty(); CM.updateAllMarkers(); }
+    }
 };
 
 function clearAll() { 
