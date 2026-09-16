@@ -389,7 +389,7 @@ class ChartManager {
         const ar = document.getElementById('indicatorArea');
         if (!mw || !ar) return;
         if (this.panes.size === 0) { mw.style.flex = '1'; ar.style.flex = '0'; ar.style.height = ''; }
-        else { mw.style.flex = '7'; ar.style.flex = '3'; }
+        else { mw.style.flex = '6'; ar.style.flex = '4'; }
     }
 
     _sync(src) {

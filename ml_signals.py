@@ -604,11 +604,11 @@ class MLSignalGenerator:
                 timestamp = data.get('training_date') or data.get('trained_at')
                 model_count = len(data.get('result', {}).get('models_trained', []))
                 if model_count > 0:
-                    print(f"✅ Model loaded: {timestamp} ({model_count} models trained)")
+                    print(f"[OK] Model loaded: {timestamp} ({model_count} models trained)")
                 else:
-                    print(f"✅ Model metadata loaded: {timestamp}")
+                    print(f"[OK] Model metadata loaded: {timestamp}")
             except Exception as e:
-                print(f"⚠️ Failed to load model: {e}")
+                print(f"[!] Failed to load model: {e}")
 
 # ======================
 # 🎯 Ensemble Signal
