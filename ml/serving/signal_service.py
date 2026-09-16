@@ -26,6 +26,8 @@ from ml.models.quantile_model import QuantileModel
 from ml.models.regime_classifier import RegimeClassifier
 from ml.models.hmm_regime_model import HMMRegimeModel
 from ml.models.rl_agent import RLAgent
+from ml.models.lstm_model import LSTMModel
+from ml.models.transformer_model import TransformerModel
 
 
 class MLSignalService:
@@ -399,6 +401,62 @@ class MLSignalService:
 			print(f"[rl_agent] ❌ Training error: {type(e).__name__}: {e}", flush=True)
 			traceback.print_exc()
 
+		# Phase E: Train LSTMModel (sequence-based)
+		try:
+			from ml.features.feature_pipeline import build_sequences
+			X_seq, y_seq = build_sequences(X, y, seq_len=26)
+
+			if len(X_seq) > 0:
+				lstm_model = LSTMModel(input_dim=X.shape[1], hidden_dim=64, seq_len=26)
+				lstm_model.set_feature_names(feature_names)
+				print(f"[lstm] Training with {len(X_seq)} sequences (input_dim={X.shape[1]})", flush=True)
+				lstm_model.train(X_seq, y_seq)
+
+				self.registry.save_and_activate(
+					lstm_model, asset, timeframe,
+					metrics={"status": "trained", "samples": len(X_seq)},
+					algorithm="lstm",
+					model_key="lstm",
+				)
+				models_trained.append("lstm")
+				print(f"[lstm] ✅ Training complete", flush=True)
+			else:
+				results["lstm_error"] = "Insufficient data for sequences"
+				print(f"[lstm] ⚠️ Insufficient data for sequences", flush=True)
+		except Exception as e:
+			import traceback
+			results["lstm_error"] = str(e)
+			print(f"[lstm] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
+
+		# Phase E: Train TransformerModel (attention-based)
+		try:
+			from ml.features.feature_pipeline import build_sequences
+			X_seq, y_seq = build_sequences(X, y, seq_len=26)
+
+			if len(X_seq) > 0:
+				transformer_model = TransformerModel(input_dim=X.shape[1], d_model=64, nhead=8, num_layers=2, seq_len=26)
+				transformer_model.set_feature_names(feature_names)
+				print(f"[transformer] Training with {len(X_seq)} sequences (input_dim={X.shape[1]})", flush=True)
+				transformer_model.train(X_seq, y_seq)
+
+				self.registry.save_and_activate(
+					transformer_model, asset, timeframe,
+					metrics={"status": "trained", "samples": len(X_seq)},
+					algorithm="transformer",
+					model_key="transformer",
+				)
+				models_trained.append("transformer")
+				print(f"[transformer] ✅ Training complete", flush=True)
+			else:
+				results["transformer_error"] = "Insufficient data for sequences"
+				print(f"[transformer] ⚠️ Insufficient data for sequences", flush=True)
+		except Exception as e:
+			import traceback
+			results["transformer_error"] = str(e)
+			print(f"[transformer] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
+
 		# Aggregate feature importances from models that have them
 		feature_importances = {}
 		for model_name in models_trained:
@@ -481,7 +539,7 @@ class MLSignalService:
 
 		features_array = features_array.reshape(1, -1)
 
-		# Get predictions from all Phase A + Phase B + Phase D models
+		# Get predictions from all Phase A + Phase B + Phase D + Phase E models
 		ensemble_proba = None
 		kalman_proba = None
 		expected_return_proba = None
@@ -494,6 +552,8 @@ class MLSignalService:
 		quantile_upper_pred = None
 		quantile_lower_pred = None
 		rl_agent_proba = None
+		lstm_proba = None
+		transformer_proba = None
 
 		# Ensemble prediction (Phase A)
 		try:
@@ -596,6 +656,26 @@ class MLSignalService:
 		except Exception:
 			pass
 
+		# LSTM prediction (Phase E)
+		try:
+			lstm_model = self.registry.get_active_model(
+				asset, timeframe, model_key="lstm"
+			)
+			if lstm_model:
+				lstm_proba = lstm_model.predict_proba(features_array)
+		except Exception:
+			pass
+
+		# Transformer prediction (Phase E)
+		try:
+			transformer_model = self.registry.get_active_model(
+				asset, timeframe, model_key="transformer"
+			)
+			if transformer_model:
+				transformer_proba = transformer_model.predict_proba(features_array)
+		except Exception:
+			pass
+
 		# Aggregate all predictions
 		signal = self.aggregator.aggregate(
 			ensemble_proba=ensemble_proba,
@@ -610,6 +690,8 @@ class MLSignalService:
 			quantile_upper_pred=quantile_upper_pred,
 			quantile_lower_pred=quantile_lower_pred,
 			rl_agent_proba=rl_agent_proba,
+			lstm_proba=lstm_proba,
+			transformer_proba=transformer_proba,
 		)
 
 		return signal

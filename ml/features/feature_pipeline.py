@@ -210,3 +210,40 @@ def build_training_matrix(
     y = np.array(y_list, dtype=np.int64)
 
     return X, y, pipeline.feature_names
+
+
+def build_sequences(
+    X: np.ndarray,
+    y: np.ndarray,
+    seq_len: int = 26,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Build sequences from flat feature matrix for RNN/Transformer models.
+
+    Converts (n_samples, n_features) into (n_sequences, seq_len, n_features)
+    using a sliding window approach.
+
+    Args:
+        X: Feature matrix shape (n_samples, n_features)
+        y: Target labels shape (n_samples,)
+        seq_len: Length of sequences to build (default 26)
+
+    Returns:
+        Tuple of (X_seq shape (n_sequences, seq_len, n_features), y_seq shape (n_sequences,))
+    """
+    if len(X) < seq_len:
+        # Not enough data for even one sequence
+        return np.array([]).reshape(0, seq_len, X.shape[1]), np.array([], dtype=y.dtype)
+
+    X_seq = []
+    y_seq = []
+
+    # Build sliding window sequences
+    for i in range(len(X) - seq_len + 1):
+        seq = X[i : i + seq_len]
+        # Use the label of the last sample in the sequence
+        label = y[i + seq_len - 1]
+
+        X_seq.append(seq)
+        y_seq.append(label)
+
+    return np.array(X_seq, dtype=np.float64), np.array(y_seq, dtype=y.dtype)

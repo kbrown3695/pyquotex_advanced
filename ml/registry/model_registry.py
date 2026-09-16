@@ -22,6 +22,8 @@ from ml.models.hmm_regime_model import HMMRegimeModel
 from ml.models.volatility_model import VolatilityModel
 from ml.models.quantile_model import QuantileModel
 from ml.models.rl_agent import RLAgent
+from ml.models.lstm_model import LSTMModel
+from ml.models.transformer_model import TransformerModel
 
 
 class ModelRegistry:
@@ -53,6 +55,8 @@ class ModelRegistry:
             "VolatilityModel": VolatilityModel,
             "QuantileModel": QuantileModel,
             "RLAgent": RLAgent,
+            "LSTMModel": LSTMModel,
+            "TransformerModel": TransformerModel,
         }
 
     def _slugify(self, asset: str, timeframe: str, model_key: str = "default") -> str:

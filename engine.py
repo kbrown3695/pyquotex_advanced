@@ -1269,7 +1269,8 @@ def save_ml_models(training_result: Dict) -> bool:
             'gradient_boosting_directional', 'gradient_boosting_return',  # Phase B
             'volatility', 'quantile_upper', 'quantile_lower',  # Phase B
             'regime_classifier', 'hmm_regime',  # Phase C
-            'rl_agent'  # Phase D
+            'rl_agent',  # Phase D
+            'lstm', 'transformer'  # Phase E
         ]
 
         for model in all_models:

@@ -167,12 +167,16 @@ class MultiModelAggregator:
 		quantile_upper_pred: Optional[np.ndarray] = None,
 		quantile_lower_pred: Optional[np.ndarray] = None,
 		rl_agent_proba: Optional[np.ndarray] = None,
+		lstm_proba: Optional[np.ndarray] = None,
+		transformer_proba: Optional[np.ndarray] = None,
 	) -> SignalResult:
 		"""Aggregate all model outputs into a single SignalResult.
 
 		Phase A: uses ensemble + advanced (Kalman, ExpectedReturn, Probability)
 		Phase B: adds gradient boosting models + volatility/quantile dampening
+		Phase C: adds regime classification and HMM
 		Phase D: adds RLAgent policy gradient predictions
+		Phase E: adds LSTM and Transformer sequence models
 
 		Args:
 			ensemble_proba: from EnsembleModel/DirectionalClassifier
@@ -187,6 +191,8 @@ class MultiModelAggregator:
 			quantile_upper_pred: from QuantileModel(0.75).predict()
 			quantile_lower_pred: from QuantileModel(0.25).predict()
 			rl_agent_proba: from RLAgent.predict_proba() (Phase D)
+			lstm_proba: from LSTMModel.predict_proba() (Phase E)
+			transformer_proba: from TransformerModel.predict_proba() (Phase E)
 
 		Returns:
 			SignalResult with side, confidence, reason, method, components
@@ -216,11 +222,39 @@ class MultiModelAggregator:
 		if components_gb:
 			p_up_advanced = 0.5 * p_up_advanced + 0.5 * p_up_gb
 
-		# Layer 3: combine ensemble + advanced
-		p_up_combined = (
-			self.ensemble_weight * p_up_ensemble +
-			self.advanced_weight * p_up_advanced
-		)
+		# Layer 3: deep learning models (Phase E)
+		p_up_deep = 0.5
+		components_deep = {}
+		lstm_weight = 0.5
+		transformer_weight = 0.5
+		deep_count = 0
+
+		if lstm_proba is not None and len(lstm_proba) > 0:
+			p_up_lstm = float(lstm_proba[-1, 1])
+			p_up_deep = lstm_weight * p_up_lstm + (1 - lstm_weight) * p_up_deep
+			components_deep["lstm"] = {"p_up": p_up_lstm}
+			deep_count += 1
+
+		if transformer_proba is not None and len(transformer_proba) > 0:
+			p_up_transformer = float(transformer_proba[-1, 1])
+			p_up_deep = transformer_weight * p_up_transformer + (1 - transformer_weight) * p_up_deep
+			components_deep["transformer"] = {"p_up": p_up_transformer}
+			deep_count += 1
+
+		# Blend Layer 3 (deep learning) into ensemble + advanced
+		# Deep learning weight: 30% (15% LSTM + 15% Transformer)
+		# Ensemble + Advanced weight: 70%
+		if deep_count > 0:
+			p_up_combined = 0.7 * (
+				self.ensemble_weight * p_up_ensemble +
+				self.advanced_weight * p_up_advanced
+			) + 0.3 * p_up_deep
+		else:
+			# No deep learning models available, use ensemble + advanced only
+			p_up_combined = (
+				self.ensemble_weight * p_up_ensemble +
+				self.advanced_weight * p_up_advanced
+			)
 
 		# Base confidence from the distance from 0.5
 		base_confidence = abs(p_up_combined - 0.5) * 2.0
@@ -260,6 +294,7 @@ class MultiModelAggregator:
 			**components_ensemble,
 			**components_advanced,
 			**components_gb,
+			**components_deep,
 		}
 		if regime_str:
 			components["regime"] = regime_str
