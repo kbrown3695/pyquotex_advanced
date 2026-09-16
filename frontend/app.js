@@ -121,6 +121,10 @@ function selectAsset(asset) {
     if(typeof eel !== 'undefined' && eel.change_asset) {
         try { eel.change_asset(asset)(); } catch(e) { console.warn('⚠️ Eel change_asset failed:', e); }
     }
+    // ✅ Update ML signal for new asset
+    if(typeof window.MLSignals?.updateSignalForCurrentAsset === 'function') {
+        setTimeout(() => window.MLSignals.updateSignalForCurrentAsset(), 100);
+    }
     closeAssetsModal();
     AppState.isFirstLoad = true;
     toast(`Switched to ${asset}`, 'success');
@@ -154,6 +158,10 @@ function selectTimeframe(tf) {
     if(UI?.currentTimeframe) UI.currentTimeframe.textContent = tf;
     if(typeof eel !== 'undefined' && eel.change_timeframe) {
         try { eel.change_timeframe(tf)(); } catch(e) { console.warn('⚠️ Eel change_timeframe failed:', e); }
+    }
+    // ✅ Update ML signal for new timeframe
+    if(typeof window.MLSignals?.updateSignalForCurrentAsset === 'function') {
+        setTimeout(() => window.MLSignals.updateSignalForCurrentAsset(), 100);
     }
     closeTimeframesModal();
     AppState.isFirstLoad = true;

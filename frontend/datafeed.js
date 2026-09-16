@@ -571,6 +571,15 @@ function updateChart(data) {
                 }
             }
 
+            // ✅ Redraw ML signal markers after timeframe/asset change
+            if (window.SignalMarkers && typeof window.SignalMarkers.redrawSignalsForCurrentChart === 'function') {
+                try {
+                    window.SignalMarkers.redrawSignalsForCurrentChart();
+                } catch(e) {
+                    console.warn('⚠️ Failed to redraw signal markers:', e);
+                }
+            }
+
             AppState.isFirstLoad = false;
             return;
         }

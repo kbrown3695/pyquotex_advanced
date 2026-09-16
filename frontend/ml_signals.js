@@ -90,22 +90,44 @@ const MLSignals = {
     updateSignal() {
         if (!this.enabled || !window.eel) return;
 
-        // Fire async request in background
-        try {
-            eel.get_ml_signal()();
+        // Fire async request for current asset
+        const asset = window.AppState?.currentAsset;
+        const timeframe = window.AppState?.currentTimeframe || "1m";
 
-            // Poll for cached result (non-blocking)
-            setTimeout(() => {
-                eel.get_last_ml_signal()(signal => {
+        if (asset) {
+            try {
+                eel.get_signal_for_asset(asset, timeframe)(signal => {
                     if (signal) {
                         this.onSignalReceived(signal);
                     }
                 });
-            }, 50);  // Small delay to let backend finish
-        } catch (e) {
-            if (e !== 'eel') {
-                console.warn('⚠️ Failed to request ML signal:', e);
+            } catch (e) {
+                if (e !== 'eel') {
+                    console.warn('⚠️ Failed to request ML signal:', e);
+                }
             }
+        }
+    },
+
+    /**
+     * Update signal immediately for current asset (called on asset/timeframe change).
+     */
+    updateSignalForCurrentAsset() {
+        if (!this.enabled || !window.eel) return;
+
+        const asset = window.AppState?.currentAsset;
+        const timeframe = window.AppState?.currentTimeframe || "1m";
+
+        if (asset) {
+            console.log(`🔄 Fetching ML signal for ${asset}/${timeframe}...`);
+            eel.get_signal_for_asset(asset, timeframe)(signal => {
+                if (signal) {
+                    console.log(`📊 Got signal for ${asset}: ${signal.side} @ ${signal.confidence.toFixed(2)}`);
+                    this.onSignalReceived(signal);
+                } else {
+                    console.log(`⏳ No signal available yet for ${asset}/${timeframe}`);
+                }
+            });
         }
     },
 

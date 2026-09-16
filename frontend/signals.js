@@ -262,15 +262,120 @@ function signalsCSV() {
 }
 
 // =============================================================================
+// 📊 CHART MARKER DISPLAY (Signal Visualization)
+// =============================================================================
+
+const SignalMarkers = {
+    _markers: new Map(),  // Track markers by signal key
+
+    /**
+     * Display a signal as a marker on the chart.
+     * Adds a visual marker at the signal's time with BUY (↑) or SELL (↓).
+     */
+    displaySignalOnChart(signal) {
+        if (!signal || !window.CM || !window.candleSeries) return;
+
+        try {
+            const marker = {
+                time: signal.time,
+                position: signal.side === 'BUY' ? 'belowBar' : 'aboveBar',
+                color: signal.side === 'BUY' ? '#00C510' : '#ff0000',
+                shape: signal.side === 'BUY' ? 'arrowUp' : 'arrowDown',
+                text: signal.side === 'BUY' ? '↑' : '↓',
+                title: `${signal.side} (${signal.indicator})\nConfidence: ${(signal.confidence * 100).toFixed(0)}%\n${signal.reason}`
+            };
+
+            // Add marker via chart manager if available
+            if (window.CM && typeof window.CM.addMarker === 'function') {
+                const markerId = window.CM.addMarker(marker);
+
+                // Track marker for cleanup
+                const signalKey = `${signal.indicator}|${signal.side}|${signal.time}`;
+                this._markers.set(signalKey, markerId);
+
+                console.log(`✅ Signal marker displayed: ${signal.side} @ ${signal.confidence.toFixed(2)}`);
+            }
+        } catch (e) {
+            console.warn('⚠️ Failed to display signal marker:', e);
+        }
+    },
+
+    /**
+     * Clear all signal markers from the chart.
+     */
+    clearAllMarkers() {
+        try {
+            this._markers.forEach((markerId, key) => {
+                if (window.CM && typeof window.CM.removeMarker === 'function') {
+                    window.CM.removeMarker(markerId);
+                }
+            });
+            this._markers.clear();
+            console.log('🧹 All signal markers cleared');
+        } catch (e) {
+            console.warn('⚠️ Failed to clear signal markers:', e);
+        }
+    },
+
+    /**
+     * Redraw all signal markers when timeframe/asset changes.
+     */
+    redrawSignalsForCurrentChart() {
+        const asset = window.AppState?.currentAsset;
+        const timeframe = window.AppState?.currentTimeframe;
+
+        if (!asset || !timeframe) return;
+
+        // Get all signals for current asset
+        const allSignals = SignalBus.getSignals();
+        const relevantSignals = allSignals.filter(s =>
+            s.asset === asset && s.timeframe === timeframe
+        );
+
+        // Clear old markers
+        this.clearAllMarkers();
+
+        // Redraw markers for current view
+        relevantSignals.forEach(signal => {
+            this.displaySignalOnChart(signal);
+        });
+
+        console.log(`🔄 Redrawn ${relevantSignals.length} signals for ${asset}/${timeframe}`);
+    }
+};
+
+/**
+ * Subscribe to signal bus to automatically display signals on chart.
+ * This is called during initialization to keep markers in sync.
+ */
+function initSignalChartDisplay() {
+    SignalBus.subscribe(signal => {
+        // Display new signals on chart
+        const asset = window.AppState?.currentAsset;
+        const timeframe = window.AppState?.currentTimeframe;
+
+        // Only display if signal matches current view
+        if (signal.asset === asset && signal.timeframe === timeframe) {
+            SignalMarkers.displaySignalOnChart(signal);
+        }
+    });
+
+    console.log('✅ Signal chart display initialized');
+}
+
+// =============================================================================
 // 🌍 GLOBAL EXPORTS & INIT
 // =============================================================================
 window.SignalBus = SignalBus;
+window.SignalMarkers = SignalMarkers;
 window.renderSignalsList = renderSignalsList;
 window.openSignalsModal = openSignalsModal;
 window.clearSignals = clearSignals;
 window.signalsCSV = signalsCSV;
+window.initSignalChartDisplay = initSignalChartDisplay;
 
 SignalBus.init();
+initSignalChartDisplay();
 
 // Toolbar button + modal wiring (guarded — this file may load before the DOM
 // finishes, and modal-close delegation lives in editor.js's initEditor).
