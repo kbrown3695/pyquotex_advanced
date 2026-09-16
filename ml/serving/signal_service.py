@@ -28,6 +28,7 @@ from ml.models.hmm_regime_model import HMMRegimeModel
 from ml.models.rl_agent import RLAgent
 from ml.models.lstm_model import LSTMModel
 from ml.models.transformer_model import TransformerModel
+from ml.serving.online_learning_manager import create_online_learning_manager
 
 
 class MLSignalService:
@@ -40,7 +41,7 @@ class MLSignalService:
 	- Individual models (Ensemble, Kalman, ExpectedReturn, Probability in Phase A)
 	"""
 
-	def __init__(self, base_dir: str = "models"):
+	def __init__(self, base_dir: str = "models", enable_g3: bool = True):
 		self.registry = ModelRegistry(base_dir=base_dir)
 		self.feature_pipeline = FeaturePipeline()
 		self.aggregator = MultiModelAggregator(
@@ -51,6 +52,16 @@ class MLSignalService:
 		)
 		# Track which models to train/use per asset+timeframe
 		self.active_models = {}
+
+		# Phase G3: Online learning optimizer (adapts weights based on live trades)
+		self.online_learning_manager = create_online_learning_manager(
+			baseline_weights={
+				"ensemble": 0.45,
+				"advanced": 0.25,
+				"deep": 0.30,
+			},
+			enable_g3=enable_g3,
+		)
 
 	def train_all(
 		self,
@@ -695,3 +706,41 @@ class MLSignalService:
 		)
 
 		return signal
+
+	def process_trade_outcome(self, trade_result: Dict[str, Any]) -> None:
+		"""Phase G3: Process completed trade and update online learning weights.
+
+		Called after a trade closes with P&L result. Updates the online learning
+		optimizer to track which models contributed to wins/losses.
+
+		Args:
+			trade_result: Dict with keys:
+				- profit: float (P&L, positive = win, negative/zero = loss)
+				- components: Dict (model predictions, e.g., {"ensemble": {...}})
+				- side: str ("BUY" or "SELL")
+				- entry: float (entry price)
+				- exit: float (exit price)
+				- timestamp: float (optional, trade completion time)
+		"""
+		if not self.online_learning_manager:
+			return
+
+		self.online_learning_manager.process_trade_outcome(trade_result)
+
+	def get_g3_stats(self) -> Dict[str, Any]:
+		"""Get Phase G3 online learning statistics.
+
+		Returns:
+			Dict with model performance stats and current adapted weights
+		"""
+		if not self.online_learning_manager:
+			return {}
+
+		return self.online_learning_manager.get_performance_stats()
+
+	def get_g3_report(self) -> str:
+		"""Get formatted Phase G3 performance report."""
+		if not self.online_learning_manager:
+			return "G3 not enabled"
+
+		return self.online_learning_manager.get_report()

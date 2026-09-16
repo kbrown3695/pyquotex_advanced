@@ -1662,6 +1662,53 @@ def get_signal_status():
 
     return status
 
+@eel.expose
+def report_trade_outcome(profit: float, components: dict, side: str, entry: float, exit: float):
+	"""Phase G3: Report a completed trade for online learning.
+
+	Called by the UI or trading bot when a trade closes. Updates the online learning
+	optimizer to track which models contributed to winning/losing trades.
+
+	Args:
+		profit: Trade P&L (positive = win, negative/zero = loss)
+		components: Model predictions from the signal (dict)
+		side: Trade side ("BUY" or "SELL")
+		entry: Entry price
+		exit: Exit price
+
+	Returns:
+		Dict with status and G3 stats
+	"""
+	global ML_SERVICE
+	if not ML_SERVICE:
+		return {"success": False, "error": "ML service not initialized"}
+
+	try:
+		trade_result = {
+			"profit": profit,
+			"components": components,
+			"side": side,
+			"entry": entry,
+			"exit": exit,
+			"timestamp": time.time(),
+		}
+
+		# Update G3 online learning
+		ML_SERVICE.process_trade_outcome(trade_result)
+
+		# Return updated stats
+		stats = ML_SERVICE.get_g3_stats()
+		return {
+			"success": True,
+			"profit": profit,
+			"trades_evaluated": stats.get("trades_evaluated", 0),
+			"win_rates": stats.get("win_rates", {}),
+			"current_weights": stats.get("current_weights", {}),
+		}
+	except Exception as e:
+		log(f"⚠️ Error reporting trade outcome: {e}", 2)
+		return {"success": False, "error": str(e)}
+
 # ======================
 # Main Entry - FIXED with Type Safety
 # ======================
