@@ -233,6 +233,7 @@ class MultiModelAggregator:
 		rl_agent_proba: Optional[np.ndarray] = None,
 		lstm_proba: Optional[np.ndarray] = None,
 		transformer_proba: Optional[np.ndarray] = None,
+		override_regime_key: Optional[str] = None,
 	) -> SignalResult:
 		"""Aggregate all model outputs into a single SignalResult.
 
@@ -241,6 +242,8 @@ class MultiModelAggregator:
 		Phase C: adds regime classification and HMM
 		Phase D: adds RLAgent policy gradient predictions
 		Phase E: adds LSTM and Transformer sequence models
+		Phase F: adds regime-specific weight optimization
+		Phase G1: adds override_regime_key for ensemble voting
 
 		Args:
 			ensemble_proba: from EnsembleModel/DirectionalClassifier
@@ -257,6 +260,7 @@ class MultiModelAggregator:
 			rl_agent_proba: from RLAgent.predict_proba() (Phase D)
 			lstm_proba: from LSTMModel.predict_proba() (Phase E)
 			transformer_proba: from TransformerModel.predict_proba() (Phase E)
+			override_regime_key: optional regime key override (Phase G1 ensemble voting)
 
 		Returns:
 			SignalResult with side, confidence, reason, method, components
@@ -265,13 +269,18 @@ class MultiModelAggregator:
 		p_up_ensemble, components_ensemble = self.blend_ensemble(ensemble_proba)
 
 		# Determine regime early for weight selection (Phase F)
-		regime_key = "default"
-		regime_str = None
-		if kalman_regime and self.use_regime_weights:
-			regime, regime_confidence = kalman_regime
-			regime_str = regime.value if regime else None
-			if regime_str:
-				regime_key = regime_str.lower()
+		# Phase G1: Allow override for ensemble voting
+		if override_regime_key:
+			regime_key = override_regime_key
+			regime_str = override_regime_key.lower()
+		else:
+			regime_key = "default"
+			regime_str = None
+			if kalman_regime and self.use_regime_weights:
+				regime, regime_confidence = kalman_regime
+				regime_str = regime.value if regime else None
+				if regime_str:
+					regime_key = regime_str.lower()
 
 		# Layer 2: advanced models (Phase A + Phase B + Phase D)
 		# Pass regime_key for regime-specific weight optimization (Phase F)
