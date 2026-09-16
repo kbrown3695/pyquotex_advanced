@@ -335,6 +335,7 @@ class ChartManager {
         this._initPaneResize(rh, id);
         if (this._paneResizeObserver) this._paneResizeObserver.observe(cd);
         this._scheduleResize();
+        setTimeout(() => this._syncPriceScalesProportional(), 100);
         return ch;
     }
 
@@ -396,10 +397,46 @@ class ChartManager {
         let syncing = false;
         src.timeScale().subscribeVisibleLogicalRangeChange(r => {
             if (!r || syncing) return; syncing = true;
-            this._allCharts.forEach(x => { 
-                if (x.chart !== src) try { x.chart.timeScale().setVisibleLogicalRange(r); } catch(e) { console.warn('⚠️ Sync failed:', e); } 
+            this._allCharts.forEach(x => {
+                if (x.chart !== src) try { x.chart.timeScale().setVisibleLogicalRange(r); } catch(e) { console.warn('⚠️ Sync failed:', e); }
             });
             syncing = false;
+        });
+    }
+
+    _syncPriceScalesProportional() {
+        const mainEl = document.getElementById('mainChartWrap');
+        const mainChart = window.chart;
+        if (!mainEl || !mainChart) return;
+
+        const mainHeight = mainEl.clientHeight;
+        const mainPS = mainChart.priceScale('right');
+        let mainRange = mainPS.getVisibleRange();
+        if (!mainRange) return;
+
+        const mainRangeSize = mainRange.to - mainRange.from;
+        const mainPixelsPerUnit = mainHeight / mainRangeSize;
+
+        this.panes.forEach((paneData, paneId) => {
+            const paneEl = document.getElementById('pc-' + paneId);
+            if (!paneEl) return;
+
+            const paneChart = paneData.chart;
+            const paneHeight = paneEl.clientHeight;
+            const panePS = paneChart.priceScale('right');
+            let paneRange = panePS.getVisibleRange();
+            if (!paneRange) return;
+
+            const targetRangeSize = paneHeight / mainPixelsPerUnit;
+            const currentCenter = (paneRange.to + paneRange.from) / 2;
+            const newFrom = currentCenter - targetRangeSize / 2;
+            const newTo = currentCenter + targetRangeSize / 2;
+
+            try {
+                panePS.setVisibleRange({ from: newFrom, to: newTo });
+            } catch(e) {
+                console.warn('⚠️ Price scale sync failed:', e);
+            }
         });
     }
 
@@ -413,6 +450,7 @@ class ChartManager {
                     }
                 }
             });
+            this._syncPriceScalesProportional();
         });
     }
 
@@ -468,7 +506,11 @@ function initChartManager() {
             setupChartInteractions();
             // ✅ Register main chart as sync source for oscillators
             window.CM._sync(window.chart);
-            console.log('✅ ChartManager initialized with scroll synchronization');
+            // ✅ Sync oscillator price scales proportionally to main chart
+            window.chart.priceScale('right').subscribeVisibleRangeChange(() => {
+                window.CM._syncPriceScalesProportional();
+            });
+            console.log('✅ ChartManager initialized with scroll & proportional price scale sync');
             return true;
         } catch(e) { console.error('❌ ChartManager init failed:', e); return false; }
     }
