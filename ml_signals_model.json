@@ -1,6 +1,6 @@
 {
-  "timestamp": 1789557442.2577484,
-  "training_date": "2026-09-16 14:17:22",
+  "timestamp": 1789568407.67947,
+  "training_date": "2026-09-16 17:20:07",
   "result": {
     "status": "trained",
     "accuracy": null,
@@ -18,7 +18,10 @@
       "quantile_upper",
       "quantile_lower",
       "regime_classifier",
-      "hmm_regime"
+      "hmm_regime",
+      "rl_agent",
+      "lstm",
+      "transformer"
     ]
   },
   "model_status": {
@@ -32,11 +35,14 @@
     "quantile_upper": "\u2705 trained",
     "quantile_lower": "\u2705 trained",
     "regime_classifier": "\u2705 trained",
-    "hmm_regime": "\u2705 trained"
+    "hmm_regime": "\u2705 trained",
+    "rl_agent": "\u2705 trained",
+    "lstm": "\u2705 trained",
+    "transformer": "\u2705 trained"
   },
   "summary": {
-    "total_models": 11,
-    "trained": 11,
+    "total_models": 14,
+    "trained": 14,
     "failed": 0
   }
 }

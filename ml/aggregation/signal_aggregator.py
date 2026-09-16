@@ -44,28 +44,79 @@ class MultiModelAggregator:
 	"""Aggregates predictions from multiple models into a single signal.
 
 	Phase A: Supports DirectionalClassifier, EnsembleModel, Kalman, ExpectedReturn, Probability.
-	Later phases: adds volatility, quantile, regime, RL, sequence nets.
+	Phase B+: adds volatility, quantile, regime, RL, sequence nets.
+	Phase F: Optimized weights with regime-specific tuning.
 	"""
 
 	def __init__(
 		self,
-		ensemble_weight: float = 0.6,
-		advanced_weight: float = 0.4,
-		use_volatility_dampening: bool = False,
-		use_regime_boost: bool = False,
+		ensemble_weight: float = 0.45,
+		advanced_weight: float = 0.25,
+		deep_weight: float = 0.30,
+		use_volatility_dampening: bool = True,
+		use_regime_boost: bool = True,
+		use_regime_weights: bool = True,
 	):
-		"""Initialize aggregator with model blending weights.
+		"""Initialize aggregator with Phase F optimized weights.
 
 		Args:
-			ensemble_weight: Weight for sklearn ensemble predictions (0-1)
-			advanced_weight: Weight for advanced (non-sklearn) models (0-1)
+			ensemble_weight: Weight for sklearn ensemble (0-1), default 0.45 (Phase F)
+			advanced_weight: Weight for advanced models (0-1), default 0.25 (Phase F)
+			deep_weight: Weight for deep learning models (0-1), default 0.30 (Phase F)
 			use_volatility_dampening: Whether to dampen on high volatility (Phase B+)
 			use_regime_boost: Whether to boost/dampen by regime (Phase C+)
+			use_regime_weights: Whether to use regime-specific weights (Phase F)
 		"""
-		self.ensemble_weight = ensemble_weight / (ensemble_weight + advanced_weight)
-		self.advanced_weight = advanced_weight / (ensemble_weight + advanced_weight)
+		# Normalize layer weights
+		total_weight = ensemble_weight + advanced_weight + deep_weight
+		self.ensemble_weight = ensemble_weight / total_weight
+		self.advanced_weight = advanced_weight / total_weight
+		self.deep_weight = deep_weight / total_weight
 		self.use_volatility_dampening = use_volatility_dampening
 		self.use_regime_boost = use_regime_boost
+		self.use_regime_weights = use_regime_weights
+
+		# Phase F: Regime-specific weight configurations
+		self.regime_weights = self._get_regime_weights()
+
+	def _get_regime_weights(self) -> Dict[str, Dict[str, float]]:
+		"""Return regime-specific weight configurations for Phase F optimization."""
+		return {
+			"default": {
+				"ensemble": 0.45,
+				"advanced": 0.25,
+				"deep": 0.30,
+			},
+			"trending_up": {
+				"ensemble": 0.50,
+				"advanced": 0.20,
+				"deep": 0.30,
+				"rl_agent": 0.60,
+				"lstm": 0.65,
+			},
+			"trending_down": {
+				"ensemble": 0.50,
+				"advanced": 0.20,
+				"deep": 0.30,
+				"rl_agent": 0.60,
+				"lstm": 0.65,
+			},
+			"ranging": {
+				"ensemble": 0.30,
+				"advanced": 0.40,
+				"deep": 0.30,
+				"kalman": 0.45,
+				"probability": 0.30,
+				"transformer": 0.60,
+			},
+			"chaotic": {
+				"ensemble": 0.60,
+				"advanced": 0.20,
+				"deep": 0.20,
+				"rl_agent": 0.10,
+				"lstm": 0.60,
+			},
+		}
 
 	def blend_ensemble(self, ensemble_proba: np.ndarray) -> Tuple[float, Dict[str, Any]]:
 		"""Extract and store sklearn ensemble prediction.
@@ -88,10 +139,11 @@ class MultiModelAggregator:
 		expected_return_proba: Optional[np.ndarray] = None,
 		probability_proba: Optional[np.ndarray] = None,
 		rl_agent_proba: Optional[np.ndarray] = None,
-		kalman_weight: float = 0.33,
+		kalman_weight: float = 0.30,
 		expected_return_weight: float = 0.25,
 		probability_weight: float = 0.25,
-		rl_agent_weight: float = 0.17,
+		rl_agent_weight: float = 0.20,
+		regime_key: Optional[str] = None,
 	) -> Tuple[float, Dict[str, Any]]:
 		"""Blend advanced (non-sklearn) model predictions with configurable weights.
 
@@ -100,15 +152,27 @@ class MultiModelAggregator:
 			expected_return_proba: (n_samples, 3) ExpectedReturn placeholder output
 			probability_proba: (n_samples, 2) Probability calibrated output
 			rl_agent_proba: (n_samples, 2) RLAgent policy predictions (Phase D+)
-			kalman_weight: relative weight for Kalman (0-1)
-			expected_return_weight: relative weight for ExpectedReturn (0-1)
-			probability_weight: relative weight for Probability (0-1)
-			rl_agent_weight: relative weight for RLAgent (0-1)
+			kalman_weight: relative weight for Kalman (0-1), default 0.30 (Phase F)
+			expected_return_weight: relative weight for ExpectedReturn (0-1), default 0.25 (Phase F)
+			probability_weight: relative weight for Probability (0-1), default 0.25 (Phase F)
+			rl_agent_weight: relative weight for RLAgent (0-1), default 0.20 (Phase F)
+			regime_key: optional regime key for regime-specific weights
 
 		Returns:
 			Tuple of (blended_p_up, components_dict)
 		"""
 		components = {}
+
+		# Apply regime-specific weights if provided (Phase F)
+		if regime_key and regime_key in self.regime_weights:
+			regime_cfg = self.regime_weights[regime_key]
+			if "kalman" in regime_cfg:
+				kalman_weight = regime_cfg["kalman"]
+			if "probability" in regime_cfg:
+				probability_weight = regime_cfg["probability"]
+			if "rl_agent" in regime_cfg:
+				rl_agent_weight = regime_cfg["rl_agent"]
+
 		weights_sum = kalman_weight + expected_return_weight + probability_weight + rl_agent_weight
 
 		if weights_sum == 0:
@@ -200,12 +264,23 @@ class MultiModelAggregator:
 		# Layer 1: sklearn ensemble
 		p_up_ensemble, components_ensemble = self.blend_ensemble(ensemble_proba)
 
+		# Determine regime early for weight selection (Phase F)
+		regime_key = "default"
+		regime_str = None
+		if kalman_regime and self.use_regime_weights:
+			regime, regime_confidence = kalman_regime
+			regime_str = regime.value if regime else None
+			if regime_str:
+				regime_key = regime_str.lower()
+
 		# Layer 2: advanced models (Phase A + Phase B + Phase D)
+		# Pass regime_key for regime-specific weight optimization (Phase F)
 		p_up_advanced, components_advanced = self.blend_advanced(
 			kalman_proba=kalman_proba,
 			expected_return_proba=expected_return_proba,
 			probability_proba=probability_proba,
 			rl_agent_proba=rl_agent_proba,
+			regime_key=regime_key,
 		)
 
 		# Layer 2b: gradient boosting models (Phase B)
@@ -222,13 +297,27 @@ class MultiModelAggregator:
 		if components_gb:
 			p_up_advanced = 0.5 * p_up_advanced + 0.5 * p_up_gb
 
-		# Layer 3: deep learning models (Phase E)
+		# Layer 3: deep learning models (Phase E, optimized in Phase F)
 		p_up_deep = 0.5
 		components_deep = {}
+
+		# Phase F: Regime-aware deep learning weights
 		lstm_weight = 0.5
 		transformer_weight = 0.5
-		deep_count = 0
+		if regime_key in self.regime_weights:
+			regime_cfg = self.regime_weights[regime_key]
+			if "lstm" in regime_cfg:
+				lstm_weight = regime_cfg["lstm"]
+			if "transformer" in regime_cfg:
+				transformer_weight = regime_cfg["transformer"]
 
+		# Normalize deep learning weights
+		deep_total = lstm_weight + transformer_weight
+		if deep_total > 0:
+			lstm_weight /= deep_total
+			transformer_weight /= deep_total
+
+		deep_count = 0
 		if lstm_proba is not None and len(lstm_proba) > 0:
 			p_up_lstm = float(lstm_proba[-1, 1])
 			p_up_deep = lstm_weight * p_up_lstm + (1 - lstm_weight) * p_up_deep
@@ -241,47 +330,77 @@ class MultiModelAggregator:
 			components_deep["transformer"] = {"p_up": p_up_transformer}
 			deep_count += 1
 
-		# Blend Layer 3 (deep learning) into ensemble + advanced
-		# Deep learning weight: 30% (15% LSTM + 15% Transformer)
-		# Ensemble + Advanced weight: 70%
-		if deep_count > 0:
-			p_up_combined = 0.7 * (
-				self.ensemble_weight * p_up_ensemble +
-				self.advanced_weight * p_up_advanced
-			) + 0.3 * p_up_deep
-		else:
-			# No deep learning models available, use ensemble + advanced only
-			p_up_combined = (
-				self.ensemble_weight * p_up_ensemble +
-				self.advanced_weight * p_up_advanced
-			)
+		# Get regime-specific or default weights
+		regime_cfg = self.regime_weights.get(regime_key, self.regime_weights["default"])
+		ens_w = regime_cfg.get("ensemble", self.ensemble_weight)
+		adv_w = regime_cfg.get("advanced", self.advanced_weight)
+		deep_w = regime_cfg.get("deep", self.deep_weight)
 
-		# Base confidence from the distance from 0.5
+		# Normalize regime weights
+		total_w = ens_w + adv_w + deep_w
+		if total_w > 0:
+			ens_w /= total_w
+			adv_w /= total_w
+			deep_w /= total_w
+
+		# Phase F: Blending with optimized weights
+		if deep_count > 0:
+			p_up_combined = (
+				ens_w * p_up_ensemble +
+				adv_w * p_up_advanced +
+				deep_w * p_up_deep
+			)
+		else:
+			# No deep learning models available, fall back to ensemble + advanced
+			fallback_total = ens_w + adv_w
+			if fallback_total > 0:
+				p_up_combined = (
+					(ens_w / fallback_total) * p_up_ensemble +
+					(adv_w / fallback_total) * p_up_advanced
+				)
+			else:
+				p_up_combined = 0.5
+
+		# Phase F: Improved confidence calculation with regime-specific thresholds
 		base_confidence = abs(p_up_combined - 0.5) * 2.0
 
-		# Apply regime dampening if available (Phase C+)
+		# Apply regime-specific confidence tuning (Phase F)
 		confidence = base_confidence
 		regime_str = None
 		if kalman_regime and self.use_regime_boost:
 			regime, regime_confidence = kalman_regime
 			regime_str = regime.value if regime else None
-			# TRENDING_* → boost, RANGING/CHAOTIC → dampen
-			if regime_str and regime_str.startswith("trending"):
-				confidence *= (1.0 + 0.2 * regime_confidence)
-			elif regime_str in ["ranging", "chaotic"]:
-				confidence *= (1.0 - 0.3 * regime_confidence)
 
-		# Apply volatility dampening from Phase A or Phase B model
+			# Regime-specific confidence adjustments (Phase F)
+			if regime_str:
+				if regime_str.lower().startswith("trending"):
+					# Trending: require higher confidence (less dampening)
+					confidence *= (1.0 + 0.25 * regime_confidence)
+				elif regime_str.lower() == "ranging":
+					# Ranging: allow lower confidence (mean reversion signals)
+					confidence *= (1.0 - 0.15 * regime_confidence)
+				elif regime_str.lower() == "chaotic":
+					# Chaotic: very selective (high dampening)
+					confidence *= (1.0 - 0.40 * regime_confidence)
+
+		# Phase F: Improved volatility dampening
 		vol_estimate = kalman_volatility
 		if volatility_pred is not None and len(volatility_pred) > 0:
 			vol_estimate = float(volatility_pred[-1])
 
 		if vol_estimate and self.use_volatility_dampening:
-			# High volatility → dampen confidence
-			vol_threshold = 0.01
-			if vol_estimate > vol_threshold:
-				vol_factor = min(1.0, vol_threshold / vol_estimate)
-				confidence *= vol_factor
+			# Regime-aware volatility dampening (Phase F)
+			if regime_str and regime_str.lower() == "chaotic":
+				# Chaotic: very aggressive dampening on volatility
+				vol_threshold = 0.005
+				vol_factor = min(1.0, vol_threshold / vol_estimate) if vol_estimate > vol_threshold else 1.0
+				confidence *= (vol_factor ** 1.5)  # Square dampening for chaos
+			else:
+				# Normal: moderate dampening
+				vol_threshold = 0.01
+				if vol_estimate > vol_threshold:
+					vol_factor = min(1.0, vol_threshold / vol_estimate)
+					confidence *= vol_factor
 
 		# Clip confidence to [0, 1]
 		confidence = max(0.0, min(1.0, confidence))
