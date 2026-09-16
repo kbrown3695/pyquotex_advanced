@@ -56,6 +56,8 @@ class MultiModelAggregator:
 		use_volatility_dampening: bool = True,
 		use_regime_boost: bool = True,
 		use_regime_weights: bool = True,
+		use_weight_smoothing: bool = False,
+		weight_smoother = None,
 	):
 		"""Initialize aggregator with Phase F optimized weights.
 
@@ -66,6 +68,8 @@ class MultiModelAggregator:
 			use_volatility_dampening: Whether to dampen on high volatility (Phase B+)
 			use_regime_boost: Whether to boost/dampen by regime (Phase C+)
 			use_regime_weights: Whether to use regime-specific weights (Phase F)
+			use_weight_smoothing: Whether to smooth weight transitions (Phase G2)
+			weight_smoother: Optional KalmanWeightSmoother instance (Phase G2)
 		"""
 		# Normalize layer weights
 		total_weight = ensemble_weight + advanced_weight + deep_weight
@@ -75,6 +79,8 @@ class MultiModelAggregator:
 		self.use_volatility_dampening = use_volatility_dampening
 		self.use_regime_boost = use_regime_boost
 		self.use_regime_weights = use_regime_weights
+		self.use_weight_smoothing = use_weight_smoothing
+		self.weight_smoother = weight_smoother
 
 		# Phase F: Regime-specific weight configurations
 		self.regime_weights = self._get_regime_weights()
@@ -344,6 +350,18 @@ class MultiModelAggregator:
 		ens_w = regime_cfg.get("ensemble", self.ensemble_weight)
 		adv_w = regime_cfg.get("advanced", self.advanced_weight)
 		deep_w = regime_cfg.get("deep", self.deep_weight)
+
+		# Phase G2: Apply Kalman smoothing to regime weights if enabled
+		if self.use_weight_smoothing and self.weight_smoother:
+			regime_weights_dict = {
+				"ensemble": ens_w,
+				"advanced": adv_w,
+				"deep": deep_w,
+			}
+			smoothed_weights = self.weight_smoother.smooth(regime_weights_dict)
+			ens_w = smoothed_weights["ensemble"]
+			adv_w = smoothed_weights["advanced"]
+			deep_w = smoothed_weights["deep"]
 
 		# Normalize regime weights
 		total_w = ens_w + adv_w + deep_w
