@@ -44,7 +44,7 @@ def show_aggregation_stats():
     print(f"[INFO] Selected pairs: {', '.join(selected)}")
     print(f"[TIME] {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-    target_timeframes = ["3m", "5m", "10m", "15m", "30m", "1h"]
+    target_timeframes = ["5s", "10s", "15s", "30s", "3m", "5m", "10m", "15m", "30m", "1h", "4h"]
 
     for asset in selected:
         print(f"\n[ASSET] {asset}")

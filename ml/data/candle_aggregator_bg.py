@@ -1,7 +1,7 @@
 """Background async candle aggregator for selected pairs.
 
-Continuously aggregates lower timeframe candles (1m) into higher timeframes
-(3m, 5m, 10m, 15m, 30m, 1h) in the background for selected pairs only.
+Continuously aggregates 1m candles into all timeframes (5s, 10s, 15s, 30s, 3m, 5m, 10m, 15m, 30m, 1h, 4h)
+in the background for selected pairs only.
 """
 
 import asyncio
@@ -17,6 +17,10 @@ class BackgroundCandleAggregator:
     """Background async candle aggregator for selected pairs."""
 
     TIMEFRAME_SECONDS = {
+        "5s": 5,
+        "10s": 10,
+        "15s": 15,
+        "30s": 30,
         "1m": 60,
         "3m": 180,
         "5m": 300,
@@ -24,10 +28,11 @@ class BackgroundCandleAggregator:
         "15m": 900,
         "30m": 1800,
         "1h": 3600,
+        "4h": 14400,
     }
 
     # Target timeframes to aggregate into (from 1m candles)
-    TARGET_TIMEFRAMES = ["3m", "5m", "10m", "15m", "30m", "1h"]
+    TARGET_TIMEFRAMES = ["5s", "10s", "15s", "30s", "3m", "5m", "10m", "15m", "30m", "1h", "4h"]
 
     def __init__(self, candle_store: CandleStore, selected_pairs_file: str = "selected_signal_pairs.json"):
         """Initialize background aggregator.
