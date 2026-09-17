@@ -477,9 +477,6 @@ async def full_reconnect():
             start_background_task("bg_candle_aggregator", BG_AGGREGATOR.start())
             log("✅ Background candle aggregator restarted", 1)
 
-        if CHART_OPENED:
-            await start_streaming(CURRENT_ASSET)
-
         log("✅ Re-login successful", 1)
         return True
     except Exception as e:
@@ -487,6 +484,12 @@ async def full_reconnect():
         return False
     finally:
         IS_RECONNECTING = False
+        # ✅ Restart streaming AFTER clearing IS_RECONNECTING flag
+        if CHART_OPENED:
+            try:
+                await start_streaming(CURRENT_ASSET)
+            except Exception as e:
+                log(f"⚠️ Failed to restart streaming after reconnect: {e}", 1)
 
 # ======================
 # ✅ تحسين #1: Hard Ping بـ get_balance
@@ -1047,52 +1050,58 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
 
 async def start_streaming(asset: str):
     global CURRENT_ASSET, BACKGROUND_LOADER_TASK
-    if IS_RECONNECTING or not CLIENT or not CLIENT.api:
+    if not CLIENT or not CLIENT.api:
+        log(f"⚠️ Cannot start streaming: CLIENT not ready", 1)
         return
 
-    old = CURRENT_ASSET
-    if old and old != asset:
-        task = ACTIVE_TASKS.pop(old, None)
-        if task and not task.done():
-            task.cancel()
-        try:
-            await CLIENT.stop_realtime_price(DISPLAY_TO_INTERNAL.get(old))
-        except Exception:
-            pass
-
-    if BACKGROUND_LOADER_TASK and not BACKGROUND_LOADER_TASK.done():
-        BACKGROUND_LOADER_TASK.cancel()
-
-    with STATE_LOCK:
-        CURRENT_ASSET = asset
-        tf = CURRENT_TIMEFRAME
-    prune_candle_cache(asset)
-    period = TIMEFRAMES.get(tf, 60)
-    await load_timeframe_data(asset, tf, period)
-    send_to_ui(asset, tf, force=True, full=True)
-    await asyncio.sleep(0.5)
-
-    internal = DISPLAY_TO_INTERNAL.get(asset)
-    if internal:
-        for _ in range(3):
+    try:
+        old = CURRENT_ASSET
+        if old and old != asset:
+            task = ACTIVE_TASKS.pop(old, None)
+            if task and not task.done():
+                task.cancel()
             try:
-                await CLIENT.start_realtime_price(internal, period)
-                update_subscription_time()
-                break
+                await CLIENT.stop_realtime_price(DISPLAY_TO_INTERNAL.get(old))
             except Exception:
-                await asyncio.sleep(1)
-    print(f"[start_streaming] About to create realtime_price_loop for {asset}", file=sys.stderr)
-    task = asyncio.create_task(realtime_price_loop(asset))
-    ACTIVE_TASKS[asset] = task
-    print(f"[start_streaming] Realtime task created", file=sys.stderr)
-    BACKGROUND_LOADER_TASK = asyncio.create_task(smart_background_loader(asset))
-    print(f"[start_streaming] Background loader created", file=sys.stderr)
+                pass
 
-    # Phase B: Start signal generation for this asset
-    print(f"[start_streaming] About to start signal generation for {asset}...", file=sys.stderr)
-    log(f"Starting signal generation for {asset}...", 2)
-    _start_signal_generation(asset, CURRENT_TIMEFRAME)
-    print(f"[start_streaming] Signal generation call completed", file=sys.stderr)
+        if BACKGROUND_LOADER_TASK and not BACKGROUND_LOADER_TASK.done():
+            BACKGROUND_LOADER_TASK.cancel()
+
+        with STATE_LOCK:
+            CURRENT_ASSET = asset
+            tf = CURRENT_TIMEFRAME
+        prune_candle_cache(asset)
+        period = TIMEFRAMES.get(tf, 60)
+        await load_timeframe_data(asset, tf, period)
+        send_to_ui(asset, tf, force=True, full=True)
+        await asyncio.sleep(0.5)
+
+        internal = DISPLAY_TO_INTERNAL.get(asset)
+        if internal:
+            for attempt in range(3):
+                try:
+                    await CLIENT.start_realtime_price(internal, period)
+                    update_subscription_time()
+                    log(f"✅ Streaming started: {asset}", 1)
+                    break
+                except Exception as e:
+                    log(f"⚠️ start_realtime_price attempt {attempt+1}/3 failed: {e}", 1)
+                    if attempt < 2:
+                        await asyncio.sleep(1)
+
+        log(f"🔄 Creating realtime_price_loop for {asset}", 1)
+        task = asyncio.create_task(realtime_price_loop(asset))
+        ACTIVE_TASKS[asset] = task
+        BACKGROUND_LOADER_TASK = asyncio.create_task(smart_background_loader(asset))
+
+        # Start signal generation for this asset
+        log(f"📊 Starting signal generation for {asset}...", 1)
+        _start_signal_generation(asset, CURRENT_TIMEFRAME)
+        log(f"✅ Streaming fully initialized for {asset}", 1)
+    except Exception as e:
+        log(f"❌ start_streaming error: {e}", 1)
+        raise
 
 # ======================
 # Input Validation
