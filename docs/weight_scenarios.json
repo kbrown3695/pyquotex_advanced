@@ -1,0 +1,192 @@
+{
+  "Scenario_1_Equal_Weights": {
+    "name": "Equal weights (1/14 each)",
+    "description": "All 14 models equally weighted for comparison",
+    "layer_weights": {
+      "ensemble": 0.07142857142857142,
+      "advanced": 0.2857142857142857,
+      "deep_learning": 0.14285714285714285
+    },
+    "advanced_model_weights": {
+      "kalman": 0.25,
+      "expected_return": 0.25,
+      "probability": 0.25,
+      "rl_agent": 0.25
+    },
+    "deep_learning_weights": {
+      "lstm": 0.5,
+      "transformer": 0.5
+    }
+  },
+  "Scenario_2_Boost_Top_Performers": {
+    "name": "Boost top 3 performers",
+    "description": "Increase weight on best-performing models (+10% each)",
+    "layer_weights": {
+      "ensemble": 0.5,
+      "advanced": 0.28,
+      "deep_learning": 0.22
+    },
+    "advanced_model_weights": {
+      "kalman": 0.4,
+      "expected_return": 0.2,
+      "probability": 0.2,
+      "rl_agent": 0.2
+    },
+    "deep_learning_weights": {
+      "lstm": 0.7,
+      "transformer": 0.3
+    }
+  },
+  "Scenario_3_Reduce_Weak_Performers": {
+    "name": "Reduce weak performers",
+    "description": "Decrease weight on underperforming models (-5% each)",
+    "layer_weights": {
+      "ensemble": 0.35,
+      "advanced": 0.4,
+      "deep_learning": 0.25
+    },
+    "advanced_model_weights": {
+      "kalman": 0.2,
+      "expected_return": 0.3,
+      "probability": 0.2,
+      "rl_agent": 0.3
+    },
+    "deep_learning_weights": {
+      "lstm": 0.4,
+      "transformer": 0.6
+    }
+  },
+  "Scenario_4_Ensemble_Advanced_Deep": {
+    "name": "Separate layer weights (50/20/30)",
+    "description": "Increase ensemble, reduce advanced, stable deep",
+    "layer_weights": {
+      "ensemble": 0.5,
+      "advanced": 0.2,
+      "deep_learning": 0.3
+    },
+    "advanced_model_weights": {
+      "kalman": 0.33,
+      "expected_return": 0.25,
+      "probability": 0.25,
+      "rl_agent": 0.17
+    },
+    "deep_learning_weights": {
+      "lstm": 0.5,
+      "transformer": 0.5
+    }
+  },
+  "Scenario_5_Trending_Weights": {
+    "name": "Trending market bias",
+    "description": "Boost momentum models (ensemble, RLAgent, LSTM)",
+    "layer_weights": {
+      "ensemble": 0.5,
+      "advanced": 0.2,
+      "deep_learning": 0.3
+    },
+    "advanced_model_weights": {
+      "kalman": 0.15,
+      "expected_return": 0.15,
+      "probability": 0.1,
+      "rl_agent": 0.6
+    },
+    "deep_learning_weights": {
+      "lstm": 0.65,
+      "transformer": 0.35
+    }
+  },
+  "Scenario_6_Ranging_Weights": {
+    "name": "Ranging market bias",
+    "description": "Boost mean-reversion models (Kalman, Probability, Transformer)",
+    "layer_weights": {
+      "ensemble": 0.3,
+      "advanced": 0.4,
+      "deep_learning": 0.3
+    },
+    "advanced_model_weights": {
+      "kalman": 0.45,
+      "expected_return": 0.15,
+      "probability": 0.3,
+      "rl_agent": 0.1
+    },
+    "deep_learning_weights": {
+      "lstm": 0.4,
+      "transformer": 0.6
+    }
+  },
+  "Scenario_7_Chaotic_Conservative": {
+    "name": "Chaotic market (conservative)",
+    "description": "Mute aggressive models, boost ensemble robustness",
+    "layer_weights": {
+      "ensemble": 0.6,
+      "advanced": 0.2,
+      "deep_learning": 0.2
+    },
+    "advanced_model_weights": {
+      "kalman": 0.35,
+      "expected_return": 0.2,
+      "probability": 0.35,
+      "rl_agent": 0.1
+    },
+    "deep_learning_weights": {
+      "lstm": 0.6,
+      "transformer": 0.4
+    }
+  },
+  "Scenario_8_Deep_Learning_Heavy": {
+    "name": "Deep learning emphasis",
+    "description": "Increase deep learning models (LSTM + Transformer)",
+    "layer_weights": {
+      "ensemble": 0.3,
+      "advanced": 0.2,
+      "deep_learning": 0.5
+    },
+    "advanced_model_weights": {
+      "kalman": 0.25,
+      "expected_return": 0.25,
+      "probability": 0.25,
+      "rl_agent": 0.25
+    },
+    "deep_learning_weights": {
+      "lstm": 0.5,
+      "transformer": 0.5
+    }
+  },
+  "Scenario_9_Balanced_Optimization": {
+    "name": "Balanced 45/25/30 split",
+    "description": "Refined balance: ensemble 45%, advanced 25%, deep 30%",
+    "layer_weights": {
+      "ensemble": 0.45,
+      "advanced": 0.25,
+      "deep_learning": 0.3
+    },
+    "advanced_model_weights": {
+      "kalman": 0.3,
+      "expected_return": 0.25,
+      "probability": 0.25,
+      "rl_agent": 0.2
+    },
+    "deep_learning_weights": {
+      "lstm": 0.55,
+      "transformer": 0.45
+    }
+  },
+  "Scenario_10_LSTM_Priority": {
+    "name": "LSTM prioritized",
+    "description": "Boost LSTM due to Phase E success, reduce Transformer",
+    "layer_weights": {
+      "ensemble": 0.4,
+      "advanced": 0.3,
+      "deep_learning": 0.3
+    },
+    "advanced_model_weights": {
+      "kalman": 0.33,
+      "expected_return": 0.22,
+      "probability": 0.22,
+      "rl_agent": 0.23
+    },
+    "deep_learning_weights": {
+      "lstm": 0.7,
+      "transformer": 0.3
+    }
+  }
+}
