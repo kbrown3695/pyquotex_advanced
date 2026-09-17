@@ -3,6 +3,13 @@
 from ml.data.candle_store import CandleStore
 from datetime import datetime
 import json
+import sys
+import io
+from pathlib import Path
+
+# Force UTF-8 output on Windows
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 
 def verify_candles():
@@ -10,16 +17,22 @@ def verify_candles():
     store = CandleStore("quotex_candles.db")
 
     timeframes = ["5s", "10s", "15s", "30s", "1m", "2m", "3m", "5m", "10m", "15m", "30m", "1h", "4h"]
-    assets = ["AUD/CAD (OTC)", "USD/PKR (OTC)", "EUR/USD (OTC)", "GBP/USD (OTC)"]
+
+    # Load selected pairs from JSON, fallback to default if not found
+    if Path("selected_signal_pairs.json").exists():
+        with open("selected_signal_pairs.json") as f:
+            assets = json.load(f)
+    else:
+        assets = ["AUD/CAD (OTC)", "USD/PKR (OTC)", "EUR/USD (OTC)", "GBP/USD (OTC)"]
 
     print("\n" + "="*80)
-    print("🗄️  DATABASE CANDLE VERIFICATION")
+    print("[DB] DATABASE CANDLE VERIFICATION")
     print("="*80)
 
     summary = {}
 
     for asset in assets:
-        print(f"\n📊 {asset}")
+        print(f"\n[ASSET] {asset}")
         print("-" * 80)
         asset_summary = {}
 
@@ -33,7 +46,7 @@ def verify_candles():
                     latest_time = datetime.fromtimestamp(latest["time"]).strftime("%Y-%m-%d %H:%M:%S")
                     oldest_time = datetime.fromtimestamp(oldest[0]["time"]).strftime("%Y-%m-%d %H:%M:%S")
 
-                    print(f"  {tf:6} → {count:4} candles | "
+                    print(f"  {tf:6} -> {count:4} candles | "
                           f"Oldest: {oldest_time} | Latest: {latest_time} | "
                           f"O={latest['open']:.5f} H={latest['high']:.5f} L={latest['low']:.5f} C={latest['close']:.5f}")
 
@@ -49,13 +62,13 @@ def verify_candles():
                         }
                     }
             else:
-                print(f"  {tf:6} → ❌ NO DATA")
+                print(f"  {tf:6} -> [NO DATA]")
 
         summary[asset] = asset_summary
 
     # Check data consistency
     print("\n" + "="*80)
-    print("✅ VERIFICATION CHECKS")
+    print("[CHECK] VERIFICATION CHECKS")
     print("="*80)
 
     for asset in assets:
@@ -65,9 +78,9 @@ def verify_candles():
         # Check 1m candles exist
         if "1m" in asset_data:
             m1_count = asset_data["1m"]["count"]
-            print(f"  ✅ 1m candles: {m1_count} stored")
+            print(f"  [OK] 1m candles: {m1_count} stored")
         else:
-            print(f"  ❌ 1m candles: NOT FOUND")
+            print(f"  [FAIL] 1m candles: NOT FOUND")
             continue
 
         # Check aggregated timeframes have data
@@ -80,22 +93,22 @@ def verify_candles():
                 expected_approx = max(1, m1_count // period)
 
                 if agg_count > 0:
-                    print(f"  ✅ {agg_tf}: {agg_count} candles (expected ~{expected_approx})")
+                    print(f"  [OK] {agg_tf}: {agg_count} candles (expected ~{expected_approx})")
                 else:
-                    print(f"  ⚠️  {agg_tf}: 0 candles (aggregation may need time)")
+                    print(f"  [WAIT] {agg_tf}: 0 candles (aggregation may need time)")
             else:
-                print(f"  ⚠️  {agg_tf}: Not in database")
+                print(f"  [WAIT] {agg_tf}: Not in database")
 
         # Check standard API timeframes
         api_tfs = ["2m", "3m", "5m", "10m", "15m", "30m", "1h"]
         api_data = [tf for tf in api_tfs if tf in asset_data]
         if api_data:
-            print(f"  ℹ️  API timeframes: {len(api_data)}/7 present ({', '.join(api_data)})")
+            print(f"  [INFO] API timeframes: {len(api_data)}/7 present ({', '.join(api_data)})")
 
     # Export summary to JSON for reference
     with open("db_verification_summary.json", "w") as f:
         json.dump(summary, f, indent=2)
-    print("\n📄 Summary saved to: db_verification_summary.json")
+    print("\n[DONE] Summary saved to: db_verification_summary.json")
 
     # Return summary for programmatic use
     return summary
