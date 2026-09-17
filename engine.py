@@ -91,6 +91,13 @@ except ImportError as e:
     print(f"⚠️ Async signal manager not available: {e}")
     AsyncSignalManager = None
 
+try:
+    from ml.data.candle_aggregator_bg import BackgroundCandleAggregator
+    print("[OK] ✅ BackgroundCandleAggregator imported successfully")
+except Exception as e:
+    print(f"⚠️ BackgroundCandleAggregator import failed: {type(e).__name__}: {e}")
+    BackgroundCandleAggregator = None
+
 # ======================
 # ⚙️ CONFIG & LOGGING
 # ======================
@@ -311,6 +318,7 @@ class InMemoryAggregator:
 CANDLE_STORE = CandleStore("quotex_candles.db") if CandleStore else None
 TIMEFRAME_AGGREGATOR = TimeframeAggregator(CANDLE_STORE) if (TimeframeAggregator and CANDLE_STORE) else None
 FALLBACK_AGGREGATOR = InMemoryAggregator()  # Always available as fallback
+BG_AGGREGATOR = None  # Will be initialized after login
 # SIGNAL_MANAGER already initialized at module load (line ~140)
 
 # Default pairs for multi-asset signal generation
@@ -461,6 +469,14 @@ async def full_reconnect():
         start_background_task("market_ping", market_activity_ping())
         start_background_task("hard_ping", hard_ping_loop())
         start_background_task("forced_resub", forced_resubscription())
+
+        # Restart background candle aggregator for selected pairs
+        global BG_AGGREGATOR
+        if BackgroundCandleAggregator and CANDLE_STORE and not BG_AGGREGATOR:
+            BG_AGGREGATOR = BackgroundCandleAggregator(CANDLE_STORE)
+            start_background_task("bg_candle_aggregator", BG_AGGREGATOR.start())
+            log("✅ Background candle aggregator restarted", 1)
+
         if CHART_OPENED:
             await start_streaming(CURRENT_ASSET)
 
@@ -1018,6 +1034,14 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
     start_background_task("market_ping", market_activity_ping())
     start_background_task("hard_ping", hard_ping_loop())
     start_background_task("forced_resub", forced_resubscription())
+
+    # Initialize background candle aggregator for selected pairs
+    global BG_AGGREGATOR
+    if BackgroundCandleAggregator and CANDLE_STORE and not BG_AGGREGATOR:
+        BG_AGGREGATOR = BackgroundCandleAggregator(CANDLE_STORE)
+        start_background_task("bg_candle_aggregator", BG_AGGREGATOR.start())
+        log("✅ Background candle aggregator started", 1)
+
     log("✅ Login successful", 1)
     return True, ""
 
