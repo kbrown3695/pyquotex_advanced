@@ -66,6 +66,12 @@ except ImportError as e:
     print(f"⚠️ ML signal service not available: {e}")
     MLSignalService = None
 
+try:
+    from ml.trading.trading_session import BinaryOptionsTradingSession
+except ImportError as e:
+    print(f"⚠️ Trading session not available: {e}")
+    BinaryOptionsTradingSession = None
+
 # ✅ Critical imports with detailed error handling
 CandleStore = None
 TimeframeAggregator = None
@@ -160,7 +166,17 @@ LAST_RECONNECT_TIME = 0
 
 # ML Signal Generators
 ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
-ML_SERVICE = MLSignalService() if MLSignalService else None
+
+# Phase 2: Initialize trading session for money/risk management
+TRADING_SESSION = None
+if BinaryOptionsTradingSession:
+    try:
+        TRADING_SESSION = BinaryOptionsTradingSession(starting_balance=1000)
+        print(f"✅ Trading session initialized: $1000 account")
+    except Exception as e:
+        print(f"⚠️ Failed to initialize trading session: {e}")
+
+ML_SERVICE = MLSignalService(trading_session=TRADING_SESSION) if MLSignalService else None
 # Initialize SIGNAL_MANAGER eagerly (not lazily) so it's ready when frontend polls
 SIGNAL_MANAGER = None
 try:
