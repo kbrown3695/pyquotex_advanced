@@ -24,6 +24,7 @@ from ml.models.quantile_model import QuantileModel
 from ml.models.rl_agent import RLAgent
 from ml.models.lstm_model import LSTMModel
 from ml.models.transformer_model import TransformerModel
+from ml.models.reversal_predictor import ReversalPredictorModel
 
 
 class ModelRegistry:
@@ -57,6 +58,7 @@ class ModelRegistry:
             "RLAgent": RLAgent,
             "LSTMModel": LSTMModel,
             "TransformerModel": TransformerModel,
+            "ReversalPredictorModel": ReversalPredictorModel,
         }
 
     def _slugify(self, asset: str, timeframe: str, model_key: str = "default") -> str:
