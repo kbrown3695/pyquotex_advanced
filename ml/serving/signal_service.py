@@ -28,6 +28,7 @@ from ml.models.hmm_regime_model import HMMRegimeModel
 from ml.models.rl_agent import RLAgent
 from ml.models.lstm_model import LSTMModel
 from ml.models.transformer_model import TransformerModel
+from ml.models.reversal_predictor import ReversalPredictorModel
 from ml.serving.online_learning_manager import create_online_learning_manager
 from ml.trading.trading_session import BinaryOptionsTradingSession
 
@@ -481,6 +482,27 @@ class MLSignalService:
 			print(f"[transformer] ❌ Training error: {type(e).__name__}: {e}", flush=True)
 			traceback.print_exc()
 
+		# Binary Options: Train ReversalPredictorModel
+		try:
+			reversal_model = ReversalPredictorModel(model_type="regression")
+			reversal_model.set_feature_names(feature_names)
+			print(f"[reversal_predictor] Training with {len(X)} samples", flush=True)
+			reversal_model.train(X, y)
+
+			self.registry.save_and_activate(
+				reversal_model, asset, timeframe,
+				metrics={"status": "trained", "samples": len(X)},
+				algorithm="reversal_regression",
+				model_key="reversal_predictor",
+			)
+			models_trained.append("reversal_predictor")
+			print(f"[reversal_predictor] ✅ Training complete", flush=True)
+		except Exception as e:
+			import traceback
+			results["reversal_predictor_error"] = str(e)
+			print(f"[reversal_predictor] ❌ Training error: {type(e).__name__}: {e}", flush=True)
+			traceback.print_exc()
+
 		# Aggregate feature importances from models that have them
 		feature_importances = {}
 		for model_name in models_trained:
@@ -697,6 +719,17 @@ class MLSignalService:
 			)
 			if transformer_model:
 				transformer_proba = transformer_model.predict_proba(features_array)
+		except Exception:
+			pass
+
+		# Binary Options: Reversal Predictor prediction
+		reversal_prediction = None
+		try:
+			reversal_model = self.registry.get_active_model(
+				asset, timeframe, model_key="reversal_predictor"
+			)
+			if reversal_model and len(candles) >= 30:
+				reversal_prediction = reversal_model.predict(candles)
 		except Exception:
 			pass
 
