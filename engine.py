@@ -140,16 +140,27 @@ QUEUE_LAST_OVERFLOW_LOG = 0
 
 def ui_loop():
     global QUEUE_OVERFLOW_COUNT, QUEUE_LAST_OVERFLOW_LOG
+    last_log_time = time.time()
+    update_count = 0
+
     while True:
         try:
             payload = UI_QUEUE.get()
             if payload is None:
                 break
-            eel.updateChart(payload)()
+
+            update_count += 1
+            # ✅ Log every 10th update to avoid spam
+            if update_count % 10 == 0:
+                log(f"📨 UI_LOOP: Sending update #{update_count} ({payload['mode']}) to frontend", 2)
+
+            result = eel.updateChart(payload)()
+
             UI_QUEUE.task_done()
             QUEUE_OVERFLOW_COUNT = 0  # Reset on successful send
+
         except Exception as e:
-            log(f"⚠️ [UI Error] {e}", 1)
+            log(f"❌ [UI_LOOP ERROR] Failed to send update: {type(e).__name__}: {e}", 1)
             time.sleep(0.1)
 threading.Thread(target=ui_loop, daemon=True, name="UIUpdater").start()
 
@@ -203,13 +214,13 @@ except Exception as e:
     traceback.print_exc()
     SIGNAL_MANAGER = None
 
-# ✅ تحسين #5: أوقات مخفضة
-TICK_IDLE_THRESHOLD   = 30   # ثانية — كان 90
-PING_INTERVAL         = 60   # ثانية — كان 180
-RESUB_INTERVAL        = 30   # ✅ جديد: إعادة اشتراك دورية (reduced to 30s for training stability)
-HARD_PING_INTERVAL    = 30   # ✅ جديد: ping بـ get_balance (reduced to 30s for training stability)
-EMPTY_TICK_RESUB_THRESHOLD = 20  # ✅ Increased from 15, more conservative
-MAX_CONSECUTIVE_EMPTY = 50   # ✅ Max before giving up on asset switch
+# ✅ تحسين #5: أوقات محسّنة للاستقرار
+TICK_IDLE_THRESHOLD   = 90   # ✅ Increased from 30s to reduce false reconnects
+PING_INTERVAL         = 90   # ✅ Increased from 60s
+RESUB_INTERVAL        = 60   # ✅ Increased from 30s
+HARD_PING_INTERVAL    = 60   # ✅ Kept stable
+EMPTY_TICK_RESUB_THRESHOLD = 30  # ✅ Increased from 12
+MAX_CONSECUTIVE_EMPTY = 100  # ✅ Increased from 50
 
 ASSET_DISPLAY_MAP: Dict[str, str] = {}
 forex_assets = {
@@ -520,13 +531,76 @@ async def full_reconnect():
 # ======================
 # ✅ تحسين #1: Hard Ping بـ get_balance
 # ======================
+async def get_account_balances() -> Dict[str, float]:
+    """Get both real and demo account balances from Quotex API.
+
+    Returns:
+        Dict with keys: 'real', 'demo', 'current_mode'
+        current_mode: 'REAL' or 'PRACTICE'
+    """
+    try:
+        if not CLIENT or not CLIENT.api:
+            return {
+                'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN',
+                'error': 'Client not ready'
+            }
+
+        # Try to get balances from cached account_balance dict (fast path)
+        account_balance = getattr(CLIENT.api, 'account_balance', None)
+        if account_balance and isinstance(account_balance, dict):
+            real_balance = float(account_balance.get('liveBalance', 0.0))
+            demo_balance = float(account_balance.get('demoBalance', 0.0))
+
+            current_mode = "REAL" if CLIENT.account_is_demo == 0 else "PRACTICE"
+
+            result = {
+                'real': real_balance,
+                'demo': demo_balance,
+                'current_mode': current_mode,
+                'timestamp': time.time()
+            }
+
+            log(f"💰 Balances (cached): Real=${real_balance:.2f} Demo=${demo_balance:.2f} Mode={current_mode}", 2)
+            return result
+
+        # Fallback: Try get_balance() if account_balance not available
+        log("⚠️ account_balance not ready, trying get_balance() fallback", 2)
+        try:
+            current_balance = await asyncio.wait_for(CLIENT.get_balance(), timeout=2)
+        except Exception as e:
+            log(f"⚠️ get_balance() fallback failed: {e}", 2)
+            current_balance = 0.0
+
+        current_mode = "REAL" if CLIENT.account_is_demo == 0 else "PRACTICE"
+
+        if current_mode == 'REAL':
+            result = {'real': float(current_balance) if current_balance else 0.0, 'demo': 0.0}
+        else:
+            result = {'real': 0.0, 'demo': float(current_balance) if current_balance else 0.0}
+
+        result['current_mode'] = current_mode
+        result['timestamp'] = time.time()
+
+        log(f"💰 Balances (fallback): {current_mode}=${result.get(current_mode.lower(), 0):.2f}", 2)
+        return result
+
+    except Exception as e:
+        import traceback
+        log(f"⚠️ Failed to get account balances: {type(e).__name__}: {e}", 1)
+        traceback.print_exc()
+        return {
+            'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN',
+            'error': str(e)
+        }
+
+
 async def hard_ping_loop():
     while True:
         await asyncio.sleep(HARD_PING_INTERVAL)
         try:
             if CLIENT and CLIENT.api:
-                balance = await asyncio.wait_for(CLIENT.get_balance(), timeout=8)
-                log(f"💓 Hard ping OK — balance: {balance}", 2)
+                balances = await get_account_balances()
+                log(f"💓 Hard ping OK — Real: ${balances['real']:.2f} Demo: ${balances['demo']:.2f} ({balances['current_mode']})", 2)
                 update_tick_time()
         except asyncio.CancelledError:
             break
@@ -566,12 +640,21 @@ async def forced_resubscription():
 # Background Tasks
 # ======================
 async def realtime_heartbeat():
+    """Monitor connection health - detect dead connections by checking if data flows"""
     while True:
-        await asyncio.sleep(45)
+        await asyncio.sleep(90)  # ✅ Check every 90 seconds (increased to reduce false disconnects)
         try:
             if CLIENT:
-                if not is_websocket_connected():
-                    log("⚠️ Heartbeat: Connection lost, reconnecting...", 1)
+                # ✅ CRITICAL FIX: Check if data is actually flowing
+                time_since_tick = time.time() - LAST_TICK_TIME
+
+                # If no data for 35+ seconds, connection is definitely dead
+                if time_since_tick > 35:
+                    log(f"💀 CRITICAL: No data for {time_since_tick:.0f}s — data stream frozen!", 1)
+                    log(f"🔄 Forcing full reconnection NOW", 1)
+                    asyncio.create_task(full_reconnect())
+                elif not is_websocket_connected():
+                    log("⚠️ Heartbeat: WebSocket disconnected, reconnecting...", 1)
                     asyncio.create_task(full_reconnect())
         except asyncio.CancelledError:
             break
@@ -725,7 +808,10 @@ def send_to_ui(asset: str, timeframe: str, force: bool = False, full: bool = Fal
     """
     global LAST_UI_SEND, QUEUE_OVERFLOW_COUNT, QUEUE_LAST_OVERFLOW_LOG
     now = time.time()
-    if not (full or force) and (now - LAST_UI_SEND) < 0.5:
+    # ✅ FIXED: Reduced rate limit from 0.5s to 0.3s to avoid false connection timeouts
+    # Frontend timeout is 10s, so we need updates at least every 5-8s
+    # With 0.3s rate limit: 10s / 0.3s = ~33 potential updates, very safe margin
+    if not (full or force) and (now - LAST_UI_SEND) < 0.3:
         return False
     LAST_UI_SEND = now
 
@@ -761,11 +847,17 @@ def send_to_ui(asset: str, timeframe: str, force: bool = False, full: bool = Fal
     try:
         UI_QUEUE.put_nowait(payload)
         QUEUE_OVERFLOW_COUNT = 0
+
+        # ✅ Log every 10 successful sends to avoid spam
+        if int(time.time() * 10) % 10 == 0:  # ~Every 10th call
+            price = payload["candles"][-1]["close"] if payload["candles"] else 0
+            log(f"✅ SEND_TO_UI: Queued {mode} for {asset}/{timeframe} @ {price}", 2)
+
         return True
     except Full:
         QUEUE_OVERFLOW_COUNT += 1
         if now - QUEUE_LAST_OVERFLOW_LOG > 5:  # Log at most once per 5 seconds
-            log(f"🚨 UI Queue overflow (dropped {QUEUE_OVERFLOW_COUNT} updates)", 1)
+            log(f"🚨 UI Queue OVERFLOW — {QUEUE_OVERFLOW_COUNT} updates dropped! Queue full.", 1)
             QUEUE_LAST_OVERFLOW_LOG = now
         return False
 
@@ -797,7 +889,8 @@ async def realtime_price_loop(asset_display: str):
                     asyncio.create_task(full_reconnect())
                     break
 
-            if errs >= 10 and not is_websocket_connected():
+            if errs >= 5 and not is_websocket_connected():
+                log(f"⚠️ WebSocket disconnected after {errs} errors, attempting recovery...", 1)
                 await CLIENT.start_realtime_price(internal, TIMEFRAMES.get(CURRENT_TIMEFRAME, 60))
                 update_subscription_time()
                 last_resub_time = time.time()
@@ -812,18 +905,21 @@ async def realtime_price_loop(asset_display: str):
                 log(f"⏱️ get_realtime_price timeout ({asset_display})", 2)
                 errs += 1
                 consecutive_empty += 1
-                if consecutive_empty >= 8 and (time.time() - last_resub_time) > 10:
-                    log(f"⚠️ {consecutive_empty} timeouts — trying resub (with backoff)", 1)
+                # FIXED: More aggressive recovery - try resub after just 3-4 timeouts (2 seconds)
+                if consecutive_empty >= 3 and (time.time() - last_resub_time) > 2:
+                    log(f"⚠️ {consecutive_empty} timeouts detected — attempting immediate recovery", 1)
                     try:
                         period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
                         await CLIENT.start_realtime_price(internal, period)
                         update_subscription_time()
                         last_resub_time = time.time()
                         consecutive_empty = 0
-                    except Exception:
+                        errs = 0
+                    except Exception as resub_err:
+                        log(f"❌ Recovery failed: {resub_err}, triggering full reconnect", 1)
                         asyncio.create_task(full_reconnect())
                         break
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)  # FIXED: Reduced from 0.5s for faster retries
                 continue
 
             update_tick_time()
@@ -847,12 +943,17 @@ async def realtime_price_loop(asset_display: str):
                     # Only send UI updates for the active/viewed asset
                     if active:
                         send_to_ui(asset_display, frame)
+                        # ✅ FIXED: Log every successful update for debugging
+                        if errs > 0 or consecutive_empty > 0:
+                            log(f"✅ {asset_display}: Data flowing (recovered from {errs}e/{consecutive_empty}empty)", 2)
                     errs = 0
                     consecutive_empty = 0
                 else:
                     consecutive_empty += 1
+                    log(f"⚠️ {asset_display}: Invalid price/ts ({price}/{ts})", 2)
             else:
                 consecutive_empty += 1
+                log(f"⚠️ {asset_display}: Empty data received", 2)
 
             if consecutive_empty >= EMPTY_TICK_RESUB_THRESHOLD:
                 if (time.time() - last_resub_time) > 15:  # ✅ Exponential backoff: wait 15s before resub
@@ -1293,6 +1394,48 @@ def get_connection_status():
         }
     return {"connected": False}
 
+@eel.expose
+def reconnect_realtime():
+    """Force reconnection of realtime data stream - called by frontend when connection lost."""
+    global CURRENT_ASSET, CURRENT_TIMEFRAME
+    if not CLIENT:
+        return {"status": "error", "message": "Client not initialized"}
+
+    try:
+        # Get current asset/timeframe
+        with STATE_LOCK:
+            asset = CURRENT_ASSET
+            timeframe = CURRENT_TIMEFRAME
+
+        internal = DISPLAY_TO_INTERNAL.get(asset, "AUDCAD_otc")
+        period = TIMEFRAMES.get(timeframe, 60)
+
+        log(f"🔄 Frontend triggered reconnect for {asset}/{timeframe}", 1)
+
+        # Force full chart refresh on next data update
+        global CHART_OPENED
+        CHART_OPENED = False
+
+        # Trigger resubscription
+        def async_reconnect():
+            async def _reconnect():
+                try:
+                    await CLIENT.start_realtime_price(internal, period)
+                    update_subscription_time()
+                    send_to_ui(asset, timeframe, force=True, full=True)
+                    log(f"✅ Reconnection successful: {asset}/{timeframe}", 1)
+                except Exception as e:
+                    log(f"❌ Reconnection failed: {e}", 1)
+                    await full_reconnect()
+
+            asyncio.run_coroutine_threadsafe(_reconnect(), ASYNC_LOOP)
+
+        async_reconnect()
+        return {"status": "reconnecting", "asset": asset, "timeframe": timeframe}
+    except Exception as e:
+        log(f"❌ Reconnect failed: {e}", 1)
+        return {"status": "error", "message": str(e)}
+
 # ======================
 # 🤖 Async ML Signal Methods
 # ======================
@@ -1390,7 +1533,8 @@ def save_ml_models(training_result: Dict) -> bool:
             'volatility', 'quantile_upper', 'quantile_lower',  # Phase B
             'regime_classifier', 'hmm_regime',  # Phase C
             'rl_agent',  # Phase D
-            'lstm', 'transformer'  # Phase E
+            'lstm', 'transformer' , # Phase E
+            'reversal_predictor'  # Phase 1.5
         ]
 
         for model in all_models:
@@ -1577,6 +1721,103 @@ def get_candles_from_store(asset: str, timeframe: str, limit: int = 200):
     if CANDLE_STORE:
         return CANDLE_STORE.get_candles(asset, timeframe, limit=limit)
     return []
+
+@eel.expose
+def get_account_balances_sync():
+    """Get real and demo account balances synchronously.
+
+    Returns:
+        Dict with keys: 'real', 'demo', 'current_mode', 'timestamp'
+        Example: {
+            'real': 5000.50,
+            'demo': 1000.00,
+            'current_mode': 'PRACTICE',
+            'timestamp': 1234567890.123
+        }
+    """
+    def run():
+        try:
+            # First check if client/api is available without async call
+            if not CLIENT or not CLIENT.api:
+                log("⚠️ get_account_balances_sync: CLIENT not available for sync call", 2)
+                return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': 'Client not ready'}
+
+            fut = asyncio.run_coroutine_threadsafe(get_account_balances(), ASYNC_LOOP)
+            result = fut.result(timeout=5)  # Shorter timeout for sync wrapper
+            log(f"💰 Account balances: Real=${result['real']:.2f} Demo=${result['demo']:.2f} Mode={result['current_mode']}", 2)
+            return result
+        except asyncio.TimeoutError:
+            log("⚠️ Timeout getting account balances (>5s)", 1)
+            return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': 'Timeout'}
+        except Exception as e:
+            log(f"⚠️ Error in get_account_balances_sync: {type(e).__name__}: {e}", 1)
+            return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': str(e)}
+
+    # Run in thread to avoid blocking
+    result = [None]
+    thread = threading.Thread(target=lambda: result.__setitem__(0, run()), daemon=True)
+    thread.start()
+    thread.join(timeout=15)
+
+    if result[0] is None:
+        log("⚠️ Balance fetch thread timeout", 1)
+        return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': 'Thread timeout'}
+
+    if result[0]:
+        log(f"✅ Returning balance: {result[0]}", 2)
+    return result[0]
+
+@eel.expose
+def switch_account_mode(mode: str):
+    """Switch between REAL and PRACTICE (DEMO) account modes.
+
+    Args:
+        mode: 'REAL' for real account, 'PRACTICE' for demo account
+
+    Returns:
+        Dict with success status and new balance info
+        Example: {
+            'success': True,
+            'message': 'Switched to PRACTICE mode',
+            'real': 5000.50,
+            'demo': 1000.00,
+            'current_mode': 'PRACTICE'
+        }
+    """
+    def run():
+        try:
+            mode_upper = mode.upper()
+            if mode_upper not in ['REAL', 'PRACTICE']:
+                return {'success': False, 'error': f"Invalid mode '{mode}'. Use 'REAL' or 'PRACTICE'"}
+
+            # Execute the account switch
+            fut = asyncio.run_coroutine_threadsafe(CLIENT.change_account(mode_upper), ASYNC_LOOP)
+            fut.result(timeout=10)
+
+            # Get updated balances
+            balances = asyncio.run_coroutine_threadsafe(get_account_balances(), ASYNC_LOOP).result(timeout=10)
+
+            log(f"✅ Switched to {mode_upper} mode", 1)
+
+            return {
+                'success': True,
+                'message': f"Switched to {mode_upper} mode",
+                'real': balances['real'],
+                'demo': balances['demo'],
+                'current_mode': balances['current_mode']
+            }
+        except asyncio.TimeoutError:
+            log(f"⚠️ Timeout switching to {mode} account", 1)
+            return {'success': False, 'error': 'Timeout switching account'}
+        except Exception as e:
+            log(f"⚠️ Failed to switch account: {e}", 1)
+            return {'success': False, 'error': str(e)}
+
+    result = [None]
+    thread = threading.Thread(target=lambda: result.__setitem__(0, run()), daemon=True)
+    thread.start()
+    thread.join(timeout=15)
+    return result[0] or {'success': False, 'error': 'Thread timeout'}
 
 @eel.expose
 def get_candle_count(asset: str, timeframe: str):
