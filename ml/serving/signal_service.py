@@ -29,6 +29,7 @@ from ml.models.rl_agent import RLAgent
 from ml.models.lstm_model import LSTMModel
 from ml.models.transformer_model import TransformerModel
 from ml.serving.online_learning_manager import create_online_learning_manager
+from ml.trading.trading_session import BinaryOptionsTradingSession
 
 
 class MLSignalService:
@@ -39,9 +40,10 @@ class MLSignalService:
 	- ModelRegistry for model persistence per asset+timeframe+model_key
 	- MultiModelAggregator for blending predictions
 	- Individual models (Ensemble, Kalman, ExpectedReturn, Probability in Phase A)
+	- Phase 2: TradingSession for money/risk management (optional)
 	"""
 
-	def __init__(self, base_dir: str = "models", enable_g3: bool = True):
+	def __init__(self, base_dir: str = "models", enable_g3: bool = True, trading_session: Optional[BinaryOptionsTradingSession] = None):
 		self.registry = ModelRegistry(base_dir=base_dir)
 		self.feature_pipeline = FeaturePipeline()
 		self.aggregator = MultiModelAggregator(
@@ -62,6 +64,17 @@ class MLSignalService:
 			},
 			enable_g3=enable_g3,
 		)
+
+		# Phase 2: Trading session for money/risk management
+		self.trading_session = trading_session
+
+	def set_trading_session(self, session: Optional[BinaryOptionsTradingSession]) -> None:
+		"""Set or update the trading session for money/risk management.
+
+		Args:
+			session: BinaryOptionsTradingSession or None to disable
+		"""
+		self.trading_session = session
 
 	def train_all(
 		self,
@@ -687,7 +700,7 @@ class MLSignalService:
 		except Exception:
 			pass
 
-		# Aggregate all predictions
+		# Aggregate all predictions (Phase 1.5: include candles for binary options enrichment)
 		signal = self.aggregator.aggregate(
 			ensemble_proba=ensemble_proba,
 			kalman_proba=kalman_proba,
@@ -703,7 +716,32 @@ class MLSignalService:
 			rl_agent_proba=rl_agent_proba,
 			lstm_proba=lstm_proba,
 			transformer_proba=transformer_proba,
+			candles=candles,
 		)
+
+		# Phase 2: Add position sizing if trading session is available
+		if signal and self.trading_session:
+			try:
+				# Map timeframe to approximate expiration seconds
+				timeframe_map = {
+					"1m": 60, "2m": 120, "5m": 300, "15m": 900,
+					"30m": 1800, "1h": 3600, "4h": 14400,
+				}
+				expiration_seconds = timeframe_map.get(timeframe, 300)
+
+				rec = self.trading_session.get_trade_recommendation(
+					signal_confidence=signal.confidence,
+					asset=asset,
+					expiration_seconds=expiration_seconds,
+				)
+				signal.position_sizing = {
+					'should_trade': rec.should_trade,
+					'position_size': rec.position_size,
+					'kelly_fraction': rec.kelly_fraction,
+					'reasons': rec.reasons,
+				}
+			except Exception:
+				pass  # If trading session fails, just skip position sizing
 
 		return signal
 

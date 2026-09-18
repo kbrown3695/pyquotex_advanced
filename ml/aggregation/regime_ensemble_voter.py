@@ -37,6 +37,7 @@ class RegimeEnsembleVoter:
         self,
         model_outputs: Dict[str, Any],
         kalman_regime: Optional[Tuple] = None,
+        candles: Optional[list] = None,
     ) -> SignalResult:
         """Generate signals via ensemble voting across regimes.
 
@@ -50,12 +51,13 @@ class RegimeEnsembleVoter:
                 - rl_agent_proba: Phase D reinforcement learning
                 - lstm_proba, transformer_proba: Phase E deep learning
             kalman_regime: Optional (regime, confidence) tuple
+            candles: Optional candle history for binary options enrichment (Phase 1.5)
 
         Returns:
             SignalResult with ensemble voting metadata
         """
         # Generate signals for each regime configuration
-        regime_signals = self._generate_regime_signals(model_outputs, kalman_regime)
+        regime_signals = self._generate_regime_signals(model_outputs, kalman_regime, candles)
 
         # Tally votes and compute consensus
         vote_tally, vote_breakdown = self._tally_votes(regime_signals)
@@ -71,12 +73,14 @@ class RegimeEnsembleVoter:
         self,
         model_outputs: Dict[str, Any],
         kalman_regime: Optional[Tuple],
+        candles: Optional[list] = None,
     ) -> Dict[str, SignalResult]:
         """Generate signals for each regime configuration.
 
         Args:
             model_outputs: Model predictions
             kalman_regime: Current regime
+            candles: Optional candle history for binary options enrichment (Phase 1.5)
 
         Returns:
             Dict mapping regime_key → SignalResult
@@ -94,11 +98,12 @@ class RegimeEnsembleVoter:
 
         for regime_key in regime_configs:
             try:
-                # Generate signal using this regime's weights
+                # Generate signal using this regime's weights (Phase 1.5: include candles for BO)
                 signal = self.base_aggregator.aggregate(
                     **model_outputs,
                     kalman_regime=kalman_regime,
                     override_regime_key=regime_key,
+                    candles=candles,
                 )
                 regime_signals[regime_key] = signal
             except Exception as e:

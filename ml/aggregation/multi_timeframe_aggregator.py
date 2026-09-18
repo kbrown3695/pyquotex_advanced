@@ -66,8 +66,8 @@ class MultiTimeframeAggregator:
         candles_5m = self._get_aggregated_candles(asset, candles_1m, "5m")
         candles_15m = self._get_aggregated_candles(asset, candles_1m, "15m")
 
-        # Generate signals on each timeframe
-        signal_1m = self.aggregator.aggregate(**model_outputs_1m, kalman_regime=kalman_regime)
+        # Generate signals on each timeframe (Phase 1.5: include candles for binary options)
+        signal_1m = self.aggregator.aggregate(**model_outputs_1m, kalman_regime=kalman_regime, candles=candles_1m)
         signal_5m = self._generate_signal(asset, candles_5m, "5m", kalman_regime)
         signal_15m = self._generate_signal(asset, candles_15m, "15m", kalman_regime)
 

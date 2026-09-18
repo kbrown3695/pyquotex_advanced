@@ -1,4 +1,8 @@
-"""Feature pipeline for transforming raw data into ML features (11-feature QuotexChart edition)."""
+"""Feature pipeline for transforming raw data into ML features (23-feature edition with binary options).
+
+Phase 1.5: Integrated binary options features (12 new features) with existing 11 features.
+All features trained together for optimal model performance.
+"""
 
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -21,21 +25,24 @@ class FeaturePipeline:
     """Transform raw market data into ML features (11 dimensions, no volume)."""
 
     def __init__(self):
-        self.feature_names = FeatureRegistry.names()  # 11 features, ordered
+        self.feature_names = FeatureRegistry.names()  # 23 features (11 original + 12 BO)
 
     def transform_live(
         self,
         snapshot: Dict[str, float],
         history: Optional[List[Dict[str, float]]] = None,
     ) -> Tuple[np.ndarray, Dict]:
-        """Transform live snapshot into feature vector (11 dimensions).
+        """Transform live snapshot into feature vector (23 dimensions).
+
+        Phase 1.5: Now includes 12 binary options features + 11 original features.
 
         Args:
-            snapshot: Current indicator snapshot with keys: close, high, low, sma_20, sma_50, ema_12, ema_26, rsi_14, macd_histogram, atr_14, bb_percent_b
+            snapshot: Current indicator snapshot with keys: close, high, low, sma_20, sma_50, ema_12, ema_26, rsi_14, macd_histogram, atr_14, bb_percent_b,
+                     + BO features: momentum_velocity, trend_age, time_to_reversal, reversal_prob, vol_percentile, vol_trend, price_velocity, acceleration, support, resistance, vol_high, trend_strength
             history: Historical snapshots for rolling features
 
         Returns:
-            Tuple of (feature array shape (11,), metadata dict)
+            Tuple of (feature array shape (23,), metadata dict)
         """
 
         def _g(name: str) -> float:
@@ -86,7 +93,7 @@ class FeaturePipeline:
             if sma50 > 1e-12:
                 sma_slope = (sma20 - sma50) / max(sma50, 1e-12)
 
-        # 11-feature vector (no volume_zscore)
+        # Original 11-feature vector
         features = [
             return_1,
             return_3,
@@ -101,6 +108,11 @@ class FeaturePipeline:
             np.clip((high - low) / max(close, 1e-12), 0, 0.1),
         ]
 
+        # Phase 1.5: Add 12 binary options features
+        # These features help models understand timing and reversal risk
+        bo_features = self._extract_bo_features(snapshot, history, close, high, low, sma20)
+        features.extend(bo_features)
+
         # Sanitize NaN/Inf
         features = [0.0 if not np.isfinite(f) else f for f in features]
 
@@ -114,18 +126,196 @@ class FeaturePipeline:
 
         return np.array(features, dtype=np.float64), metadata
 
+    def _extract_bo_features(
+        self,
+        snapshot: Dict[str, float],
+        history: Optional[List[Dict[str, float]]],
+        close: float,
+        high: float,
+        low: float,
+        sma20: float,
+    ) -> List[float]:
+        """Extract 12 binary options features from snapshot and history.
+
+        Features:
+        1. momentum_velocity - How fast momentum is changing
+        2. trend_age_seconds - How long trend has been active
+        3. time_to_reversal_seconds - Predicted reversal time
+        4. reversal_probability - Confidence in reversal
+        5. volatility_percentile - Vol rank (0-100)
+        6. volatility_trend - Vol increasing/decreasing
+        7. price_velocity - Pips per minute
+        8. acceleration - Momentum accelerating
+        9. support_level - Support price
+        10. resistance_level - Resistance price
+        11. volatility_high_flag - Is volatility high?
+        12. trend_strength - How strong is trend?
+        """
+        if not history or len(history) < 20:
+            return [0.0] * 12
+
+        closes = np.array([h.get('close', close) for h in history])
+        closes = np.append(closes, close)
+
+        highs = np.array([h.get('high', high) for h in history])
+        highs = np.append(highs, high)
+
+        lows = np.array([h.get('low', low) for h in history])
+        lows = np.append(lows, low)
+
+        bo_features = []
+
+        # 1. Momentum velocity
+        if len(closes) >= 40:
+            roc1 = (closes[-21] - closes[-40]) / 20
+            roc2 = (closes[-1] - closes[-20]) / 20
+            momentum_vel = (roc2 - roc1) / 20
+            momentum_vel = np.clip(momentum_vel, -0.1, 0.1)
+        else:
+            momentum_vel = 0.0
+        bo_features.append(momentum_vel)
+
+        # 2. Trend age (estimate in units of 60s per candle)
+        if len(closes) >= 20:
+            returns = np.diff(np.log(np.maximum(closes, 1e-12)))
+            trend_up = np.mean(returns[-20:]) > 0
+            for i in range(len(closes) - 2, 0, -1):
+                rev = closes[i] - closes[max(0, i-20)]
+                is_up = rev > 0
+                if is_up != trend_up:
+                    trend_age = (len(closes) - i - 1) * 60
+                    break
+            else:
+                trend_age = len(closes) * 60
+        else:
+            trend_age = 0.0
+        bo_features.append(float(min(trend_age, 12000)))  # Cap at 200 minutes
+
+        # 3. Time to reversal (simplified: 300s default, adjusted by RSI)
+        rsi = _g_from_snapshot(snapshot, "rsi_14", 50.0)
+        if rsi > 70 or rsi < 30:
+            time_to_reversal = 240.0
+        else:
+            time_to_reversal = 600.0
+        bo_features.append(time_to_reversal)
+
+        # 4. Reversal probability (based on RSI and trend age)
+        if rsi > 70:
+            rev_prob = 0.5
+        elif rsi < 30:
+            rev_prob = 0.5
+        else:
+            rev_prob = 0.25
+        bo_features.append(rev_prob)
+
+        # 5. Volatility percentile
+        returns = np.diff(np.log(np.maximum(closes, 1e-12)))
+        recent_vol = np.std(returns[-10:]) if len(returns) >= 10 else 0.0
+        rolling_vols = [np.std(returns[max(0, i-20):i+1]) for i in range(20, len(returns))]
+        if rolling_vols and max(rolling_vols) > 1e-10:
+            vol_percentile = (sum(1 for v in rolling_vols if v <= recent_vol) / len(rolling_vols)) * 100
+        else:
+            vol_percentile = 5.0 if recent_vol < 1e-10 else 50.0
+        bo_features.append(float(np.clip(vol_percentile, 0, 100)))
+
+        # 6. Volatility trend
+        if len(returns) >= 20:
+            old_vol = np.std(returns[-20:-10])
+            vol_diff = recent_vol - old_vol
+            if abs(vol_diff) < 1e-10:
+                vol_trend = 0.0
+            else:
+                vol_trend = 1.0 if vol_diff > 0 else -1.0
+                vol_trend *= min(abs(vol_diff) / max(old_vol, 1e-6), 1.0)
+        else:
+            vol_trend = 0.0
+        bo_features.append(float(np.clip(vol_trend, -1, 1)))
+
+        # 7. Price velocity (pips per minute)
+        if len(closes) >= 5:
+            movement = abs(closes[-1] - closes[-5])
+            price_vel = movement / 5
+        else:
+            price_vel = 0.0
+        bo_features.append(float(np.clip(price_vel, 0, 1.0)))
+
+        # 8. Acceleration
+        if len(closes) >= 15:
+            mom_recent = closes[-1] - closes[-6]
+            mom_prior = closes[-6] - closes[-11]
+            mom_prev = closes[-11] - closes[-16] if len(closes) >= 16 else mom_prior
+            accel_recent = mom_recent - mom_prior
+            accel_older = mom_prior - mom_prev
+            min_threshold = max(abs(mom_recent), abs(mom_prior)) * 1e-8 or 1e-12
+            if accel_recent > accel_older + min_threshold:
+                acceleration = 1.0
+            elif accel_recent < accel_older - min_threshold:
+                acceleration = -1.0
+            else:
+                acceleration = 0.0
+        else:
+            acceleration = 0.0
+        bo_features.append(acceleration)
+
+        # 9. Support level
+        current_price = (lows[-1] + highs[-1]) / 2
+        swing_lows = []
+        lookback = min(50, len(lows) - 2)
+        for i in range(2, lookback):
+            if lows[i] < lows[i-1] and lows[i] < lows[i+1]:
+                swing_lows.append(lows[i])
+        valid_supports = [s for s in swing_lows if s < current_price]
+        if valid_supports:
+            support = float(max(valid_supports))
+        else:
+            support = float(np.min(lows[-min(50, len(lows)):]))
+        bo_features.append(support)
+
+        # 10. Resistance level
+        swing_highs = []
+        lookback = min(50, len(highs) - 2)
+        for i in range(2, lookback):
+            if highs[i] > highs[i-1] and highs[i] > highs[i+1]:
+                swing_highs.append(highs[i])
+        valid_resistances = [r for r in swing_highs if r > current_price]
+        if valid_resistances:
+            resistance = float(min(valid_resistances))
+        else:
+            resistance = float(np.max(highs[-min(50, len(highs)):]))
+        bo_features.append(resistance)
+
+        # 11. Volatility high flag (boolean as float)
+        vol_high = 1.0 if vol_percentile > 65 else 0.0
+        bo_features.append(vol_high)
+
+        # 12. Trend strength (RSI-based)
+        rsi_val = _g_from_snapshot(snapshot, "rsi_14", 50.0)
+        trend_strength = abs(rsi_val - 50.0) / 50.0  # 0 to 1
+        bo_features.append(float(np.clip(trend_strength, 0, 1)))
+
+        return bo_features
+
+
+def _g_from_snapshot(snapshot: Dict[str, float], name: str, default: float = 0.0) -> float:
+    """Helper to get value from snapshot."""
+    val = snapshot.get(name, default)
+    try:
+        return float(val) if val is not None else default
+    except (TypeError, ValueError):
+        return default
+
 
 def build_snapshots(candles: List[dict]) -> List[Dict[str, float]]:
-    """Build indicator snapshots from candle history.
+    """Build indicator snapshots from candle history (with BO features).
 
     Runs all indicator calculations once over the full candle list,
-    returns one snapshot dict per candle.
+    returns one snapshot dict per candle (now includes 12 BO features).
 
     Args:
         candles: List of candle dicts with keys: time, open, high, low, close
 
     Returns:
-        List of snapshot dicts, one per candle, each containing all indicators
+        List of snapshot dicts, one per candle, each containing all indicators + BO features
     """
     closes = [c['close'] for c in candles]
     highs = [c['high'] for c in candles]
@@ -144,6 +334,8 @@ def build_snapshots(candles: List[dict]) -> List[Dict[str, float]]:
 
     # Build snapshot for each candle
     snapshots = []
+    pipeline = FeaturePipeline()
+
     for i in range(len(candles)):
         snapshot = {
             'close': closes[i],
@@ -159,6 +351,32 @@ def build_snapshots(candles: List[dict]) -> List[Dict[str, float]]:
             'atr_14': atr14_vals[i] or 0.0,
             'bb_percent_b': bb_pb_vals[i] or 0.0,
         }
+
+        # Phase 1.5: Add BO features using history
+        history_for_bo = snapshots[max(0, i-50):i] if i > 0 else []
+        bo_feats = pipeline._extract_bo_features(
+            snapshot,
+            history_for_bo,
+            closes[i],
+            highs[i],
+            lows[i],
+            sma20_vals[i] or closes[i]
+        )
+
+        # Add BO features to snapshot
+        snapshot['momentum_velocity'] = bo_feats[0]
+        snapshot['trend_age_seconds'] = bo_feats[1]
+        snapshot['time_to_reversal_seconds'] = bo_feats[2]
+        snapshot['reversal_probability'] = bo_feats[3]
+        snapshot['volatility_percentile'] = bo_feats[4]
+        snapshot['volatility_trend'] = bo_feats[5]
+        snapshot['price_velocity'] = bo_feats[6]
+        snapshot['acceleration'] = bo_feats[7]
+        snapshot['support_level'] = bo_feats[8]
+        snapshot['resistance_level'] = bo_feats[9]
+        snapshot['volatility_high_flag'] = bo_feats[10]
+        snapshot['trend_strength'] = bo_feats[11]
+
         snapshots.append(snapshot)
 
     return snapshots

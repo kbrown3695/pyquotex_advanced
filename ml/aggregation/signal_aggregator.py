@@ -4,7 +4,7 @@ Combines outputs from multiple models (directional classifiers, regime detectors
 volatility estimators) into a single calibrated trading signal.
 """
 
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 import numpy as np
 
 
@@ -19,6 +19,10 @@ class SignalResult:
 		method: str = "ensemble",
 		components: Optional[Dict[str, Any]] = None,
 		timestamp: Optional[float] = None,
+		binary_options_features: Optional[Dict[str, Any]] = None,
+		confidence_by_expiration: Optional[Dict[str, float]] = None,
+		safe_expirations: Optional[List[str]] = None,
+		position_sizing: Optional[Dict[str, Any]] = None,
 	):
 		self.side = side  # 'BUY' or 'SELL'
 		self.confidence = max(0.0, min(1.0, confidence))
@@ -26,11 +30,15 @@ class SignalResult:
 		self.method = method
 		self.components = components or {}
 		self.timestamp = timestamp
+		self.binary_options_features = binary_options_features or {}
+		self.confidence_by_expiration = confidence_by_expiration or {}
+		self.safe_expirations = safe_expirations or []
+		self.position_sizing = position_sizing or {}
 
 	def to_dict(self) -> Dict[str, Any]:
 		"""Convert to JSON-serializable dict, matching ml_signals.py::SignalResult.to_dict()."""
 		import time
-		return {
+		result = {
 			"side": self.side,
 			"confidence": round(self.confidence, 3),
 			"reason": self.reason,
@@ -38,6 +46,36 @@ class SignalResult:
 			"components": self.components,
 			"timestamp": self.timestamp or time.time(),
 		}
+
+		# Add binary options features if available
+		if self.binary_options_features:
+			result["binary_options"] = {
+				"time_to_reversal_seconds": self.binary_options_features.get("time_to_reversal_seconds", 0),
+				"reversal_probability": round(self.binary_options_features.get("reversal_probability", 0), 3),
+				"momentum_velocity": round(self.binary_options_features.get("momentum_velocity", 0), 6),
+				"volatility_percentile": round(self.binary_options_features.get("volatility_percentile", 0), 1),
+				"support_level": self.binary_options_features.get("support_level", 0),
+				"resistance_level": self.binary_options_features.get("resistance_level", 0),
+			}
+
+		if self.confidence_by_expiration:
+			result["confidence_by_expiration"] = {
+				k: round(v, 3) for k, v in self.confidence_by_expiration.items()
+			}
+
+		if self.safe_expirations:
+			result["safe_expirations"] = self.safe_expirations
+
+		# Add position sizing if available (Phase 2)
+		if self.position_sizing:
+			result["position_sizing"] = {
+				"should_trade": self.position_sizing.get("should_trade", False),
+				"position_size": round(self.position_sizing.get("position_size", 0), 2),
+				"kelly_fraction": round(self.position_sizing.get("kelly_fraction", 0), 4),
+				"reasons": self.position_sizing.get("reasons", []),
+			}
+
+		return result
 
 
 class MultiModelAggregator:
@@ -84,6 +122,13 @@ class MultiModelAggregator:
 
 		# Phase F: Regime-specific weight configurations
 		self.regime_weights = self._get_regime_weights()
+
+		# Phase 1.5: Binary options feature engineering
+		try:
+			from ml.features.binary_options_features import BinaryOptionsFeatureEngineer
+			self.bo_engineer = BinaryOptionsFeatureEngineer()
+		except (ImportError, ModuleNotFoundError):
+			self.bo_engineer = None
 
 	def _get_regime_weights(self) -> Dict[str, Dict[str, float]]:
 		"""Return regime-specific weight configurations for Phase F optimization."""
@@ -223,6 +268,105 @@ class MultiModelAggregator:
 
 		return p_up_sum, components
 
+	def enrich_signal_with_binary_options(
+		self,
+		signal: SignalResult,
+		candles: Optional[List[Dict[str, Any]]] = None,
+	) -> SignalResult:
+		"""Enrich signal with binary options timing features.
+
+		Args:
+			signal: Base signal from ensemble models
+			candles: Recent candle history
+
+		Returns:
+			Signal with binary options features added
+		"""
+		if not self.bo_engineer or not candles or len(candles) < 20:
+			return signal
+
+		try:
+			# Extract binary options features
+			bo_features = self.bo_engineer.extract(candles)
+
+			# Calculate expiration-optimized confidence
+			confidence_by_expiration = {
+				"1m": self._adjust_confidence_for_expiration(signal.confidence, bo_features, 60),
+				"2m": self._adjust_confidence_for_expiration(signal.confidence, bo_features, 120),
+				"5m": self._adjust_confidence_for_expiration(signal.confidence, bo_features, 300),
+				"15m": self._adjust_confidence_for_expiration(signal.confidence, bo_features, 900),
+			}
+
+			# Determine safe expirations
+			safe_expirations = []
+			if bo_features.safe_for_1m:
+				safe_expirations.append("1m")
+			if bo_features.safe_for_2m:
+				safe_expirations.append("2m")
+			if bo_features.safe_for_5m:
+				safe_expirations.append("5m")
+			if bo_features.safe_for_15m:
+				safe_expirations.append("15m")
+
+			# Create new signal result with BO features
+			enriched_signal = SignalResult(
+				side=signal.side,
+				confidence=signal.confidence,
+				reason=signal.reason,
+				method=signal.method,
+				components=signal.components,
+				timestamp=signal.timestamp,
+				binary_options_features={
+					"time_to_reversal_seconds": bo_features.time_to_reversal_seconds,
+					"reversal_probability": bo_features.reversal_probability,
+					"momentum_velocity": bo_features.momentum_velocity,
+					"volatility_percentile": bo_features.volatility_percentile,
+					"support_level": bo_features.support_level,
+					"resistance_level": bo_features.resistance_level,
+				},
+				confidence_by_expiration=confidence_by_expiration,
+				safe_expirations=safe_expirations,
+			)
+
+			return enriched_signal
+
+		except Exception as e:
+			# If BO feature extraction fails, return original signal
+			import logging
+			logging.warning(f"Binary options enrichment failed: {e}")
+			return signal
+
+	def _adjust_confidence_for_expiration(
+		self,
+		base_confidence: float,
+		bo_features,
+		expiration_seconds: int,
+	) -> float:
+		"""Adjust confidence based on reversal risk for expiration time.
+
+		Args:
+			base_confidence: Model confidence (0-1)
+			bo_features: Binary options features
+			expiration_seconds: Expiration time in seconds (60, 120, 300, 900)
+
+		Returns:
+			Adjusted confidence for this expiration time
+		"""
+		# If reversal likely before expiration, reduce confidence
+		time_to_reversal = bo_features.time_to_reversal_seconds
+		reversal_prob = bo_features.reversal_probability
+
+		if time_to_reversal < expiration_seconds:
+			# Reversal risk within expiration window
+			# Reduce confidence by reversal probability
+			adjusted = base_confidence * (1.0 - reversal_prob * 0.5)
+		else:
+			# Reversal unlikely before expiration
+			# Keep confidence, maybe slightly boost
+			adjusted = base_confidence * (1.0 + bo_features.time_of_day_weight * 0.1)
+
+		return max(0.3, min(0.95, adjusted))  # Clamp to reasonable range
+
 	def aggregate(
 		self,
 		ensemble_proba: Optional[np.ndarray] = None,
@@ -240,6 +384,7 @@ class MultiModelAggregator:
 		lstm_proba: Optional[np.ndarray] = None,
 		transformer_proba: Optional[np.ndarray] = None,
 		override_regime_key: Optional[str] = None,
+		candles: Optional[List[Dict[str, Any]]] = None,
 	) -> SignalResult:
 		"""Aggregate all model outputs into a single SignalResult.
 
@@ -250,6 +395,7 @@ class MultiModelAggregator:
 		Phase E: adds LSTM and Transformer sequence models
 		Phase F: adds regime-specific weight optimization
 		Phase G1: adds override_regime_key for ensemble voting
+		Phase 1.5: adds binary options timing features (reversal prediction, expiration safety)
 
 		Args:
 			ensemble_proba: from EnsembleModel/DirectionalClassifier
@@ -267,9 +413,10 @@ class MultiModelAggregator:
 			lstm_proba: from LSTMModel.predict_proba() (Phase E)
 			transformer_proba: from TransformerModel.predict_proba() (Phase E)
 			override_regime_key: optional regime key override (Phase G1 ensemble voting)
+			candles: recent candle history for binary options enrichment (Phase 1.5)
 
 		Returns:
-			SignalResult with side, confidence, reason, method, components
+			SignalResult with side, confidence, reason, method, components, binary_options features
 		"""
 		# Layer 1: sklearn ensemble
 		p_up_ensemble, components_ensemble = self.blend_ensemble(ensemble_proba)
@@ -463,10 +610,16 @@ class MultiModelAggregator:
 			reason_parts.append("advanced bearish")
 		reason = "; ".join(reason_parts) if reason_parts else "neutral"
 
-		return SignalResult(
+		# Create base signal
+		base_signal = SignalResult(
 			side=side,
 			confidence=confidence,
 			reason=reason,
 			method="ensemble",
 			components=components,
 		)
+
+		# Enrich with binary options features (Phase 1.5)
+		enriched_signal = self.enrich_signal_with_binary_options(base_signal, candles)
+
+		return enriched_signal

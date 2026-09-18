@@ -1,4 +1,8 @@
-"""Feature registry - single source of truth for ML features (11-feature tier, QuotexChart-adapted)."""
+"""Feature registry - single source of truth for ML features (23-feature tier with binary options).
+
+Phase 1.5: Extended to include 12 binary options features for improved binary options trading signals.
+All features trained together for optimal model performance.
+"""
 
 from dataclasses import dataclass
 from typing import List
@@ -14,7 +18,7 @@ class FeatureDefinition:
     min_history: int
 
 
-# Master registry of all available features (13 total: 11 base + SMA50 + SMA100)
+# Master registry of all available features (23 total: 11 base + 12 binary options)
 FEATURE_REGISTRY = (
     FeatureDefinition(
         name="returns_1",
@@ -93,6 +97,79 @@ FEATURE_REGISTRY = (
         version="1.0",
         description="(high - low) / close",
         min_history=1,
+    ),
+    # Phase 1.5: Binary options features (12 new features)
+    FeatureDefinition(
+        name="momentum_velocity",
+        version="1.5",
+        description="How fast momentum is changing (pips/second)",
+        min_history=40,
+    ),
+    FeatureDefinition(
+        name="trend_age_seconds",
+        version="1.5",
+        description="How long current trend has been active",
+        min_history=20,
+    ),
+    FeatureDefinition(
+        name="time_to_reversal_seconds",
+        version="1.5",
+        description="Predicted seconds until trend reversal",
+        min_history=20,
+    ),
+    FeatureDefinition(
+        name="reversal_probability",
+        version="1.5",
+        description="Probability of imminent reversal (0-1)",
+        min_history=20,
+    ),
+    FeatureDefinition(
+        name="volatility_percentile",
+        version="1.5",
+        description="Current vol rank vs historical (0-100)",
+        min_history=50,
+    ),
+    FeatureDefinition(
+        name="volatility_trend",
+        version="1.5",
+        description="Volatility increasing (+1) or decreasing (-1)",
+        min_history=20,
+    ),
+    FeatureDefinition(
+        name="price_velocity",
+        version="1.5",
+        description="Price movement rate (pips/minute)",
+        min_history=5,
+    ),
+    FeatureDefinition(
+        name="acceleration",
+        version="1.5",
+        description="Momentum accelerating (+1) or decelerating (-1)",
+        min_history=15,
+    ),
+    FeatureDefinition(
+        name="support_level",
+        version="1.5",
+        description="Nearest support price level",
+        min_history=50,
+    ),
+    FeatureDefinition(
+        name="resistance_level",
+        version="1.5",
+        description="Nearest resistance price level",
+        min_history=50,
+    ),
+    FeatureDefinition(
+        name="volatility_high_flag",
+        version="1.5",
+        description="Is volatility high? (0 or 1)",
+        min_history=50,
+    ),
+    FeatureDefinition(
+        name="trend_strength",
+        version="1.5",
+        description="How strong is current trend (0-1)",
+        min_history=15,
     ),
 )
 
