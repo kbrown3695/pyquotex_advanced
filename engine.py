@@ -177,6 +177,16 @@ if BinaryOptionsTradingSession:
         print(f"⚠️ Failed to initialize trading session: {e}")
 
 ML_SERVICE = MLSignalService(trading_session=TRADING_SESSION) if MLSignalService else None
+# ML_SERVICE now includes:
+# - Phase A: Ensemble, Kalman, ExpectedReturn, Probability (4 models)
+# - Phase B: GradientBoosting Directional/Return, Volatility, Quantile (5 models)
+# - Phase D: RL Agent (1 model)
+# - Phase E: LSTM, Transformer (2 models)
+# - Phase 1.5: Binary Options features enrichment
+# - Phase 2: Money/Risk management with Kelly Criterion sizing
+# - Binary Options: ReversalPredictorModel (1 model) - timing for position sizing
+# Total: 15 models + position sizing recommendations + reversal timing
+
 # Initialize SIGNAL_MANAGER eagerly (not lazily) so it's ready when frontend polls
 SIGNAL_MANAGER = None
 try:
