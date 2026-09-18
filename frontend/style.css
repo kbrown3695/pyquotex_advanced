@@ -453,7 +453,7 @@ html, body {
 .sig-actions .sp-btn { padding: 4px 12px; font-size: 10px; }
 .sig-list-head, .sig-row {
     display: grid;
-    grid-template-columns: 70px 1fr 64px 58px 1.2fr;
+    grid-template-columns: 70px 1fr 64px 58px 90px 1.2fr;
     gap: 8px; align-items: center;
 }
 .sig-list-head {
@@ -482,6 +482,7 @@ html, body {
 .sig-conf { display: flex; flex-direction: column; gap: 3px; align-items: stretch; }
 .sig-conf-bar { display: block; height: 3px; border-radius: 2px; background: #1e293b; transition: width 0.3s; }
 .sig-conf span:last-child { font-family: 'Fira Code', monospace; font-size: 9px; color: #94a3b8; text-align: center; }
+.sig-sizing { font-family: 'Fira Code', monospace; font-size: 10px; color: #00C510; text-align: center; padding: 3px; border-radius: 3px; }
 .sig-reason { font-size: 11px; color: #94a3b8; font-family: 'Cormorant Garamond', serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sig-empty { padding: 32px 16px; text-align: center; color: #475569; font-size: 12px; font-family: 'Cormorant Garamond', serif; font-style: italic; }
 

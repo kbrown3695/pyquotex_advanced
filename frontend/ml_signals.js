@@ -137,18 +137,31 @@ const MLSignals = {
     onSignalReceived(signal) {
         if (!signal || typeof signal !== 'object') return;
 
+        // Extract position sizing info if available (Phase 2)
+        const positionSizing = signal.position_sizing ? {
+            should_trade: signal.position_sizing.should_trade,
+            position_size: signal.position_sizing.position_size,
+            kelly_fraction: signal.position_sizing.kelly_fraction,
+            reasons: signal.position_sizing.reasons
+        } : null;
+
         // Publish to SignalBus for persistence and display
         const published = SignalBus.publish({
             side: signal.side,
             confidence: signal.confidence,
             reason: signal.reason || `ML (${signal.method})`,
             indicator: 'ML-' + (signal.method || 'ensemble'),
-            time: signal.timestamp ? Math.floor(signal.timestamp) : undefined
+            time: signal.timestamp ? Math.floor(signal.timestamp) : undefined,
+            position_sizing: positionSizing,
+            binary_options: signal.binary_options
         });
 
         if (published) {
             const conf = (published.confidence * 100).toFixed(0);
-            console.log(`📊 ML Signal: ${published.side} @ ${conf}%`);
+            const sizeInfo = positionSizing && positionSizing.position_size
+                ? ` | Size: $${positionSizing.position_size.toFixed(2)}`
+                : '';
+            console.log(`📊 ML Signal: ${published.side} @ ${conf}%${sizeInfo}`);
 
             // Update UI if signals panel is visible
             if (document.getElementById('signalsList')) {

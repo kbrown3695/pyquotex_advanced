@@ -98,7 +98,9 @@ const SignalBus = {
             time: Number(raw.time) || (lastCandle ? lastCandle.time : Math.floor(Date.now() / 1000)),
             indicator: String(raw.indicator || 'Unknown'),
             asset: String(raw.asset || window.AppState?.currentAsset || ''),
-            timeframe: String(raw.timeframe || window.AppState?.currentTimeframe || '')
+            timeframe: String(raw.timeframe || window.AppState?.currentTimeframe || ''),
+            position_sizing: raw.position_sizing || null,
+            binary_options: raw.binary_options || null
         };
 
         const key = this._key(sig);
@@ -214,12 +216,25 @@ function renderSignalsList() {
         confText.textContent = Math.round(sig.confidence * 100) + '%';
         conf.append(confBar, confText);
 
+        // Phase 2: Position sizing display
+        const sizing = document.createElement('span');
+        sizing.className = 'sig-sizing';
+        if (sig.position_sizing && sig.position_sizing.position_size > 0) {
+            const shouldTrade = sig.position_sizing.should_trade ? '✓' : '✗';
+            const posSize = sig.position_sizing.position_size.toFixed(2);
+            const kelly = (sig.position_sizing.kelly_fraction * 100).toFixed(1);
+            sizing.textContent = `${shouldTrade} $${posSize} (${kelly}% Kelly)`;
+            sizing.style.color = sig.position_sizing.should_trade ? '#00C510' : '#FF6B6B';
+        } else {
+            sizing.textContent = '—';
+        }
+
         const reason = document.createElement('span');
         reason.className = 'sig-reason';
         reason.textContent = sig.reason || '—';
         reason.title = sig.reason || '';
 
-        row.append(time, meta, side, conf, reason);
+        row.append(time, meta, side, conf, sizing, reason);
         fragment.appendChild(row);
     });
 
@@ -244,10 +259,13 @@ function signalsCSV() {
         if (typeof toast === 'function') toast('No signals to export', 'error');
         return;
     }
-    const header = 'Time,Asset,Timeframe,Indicator,Side,Confidence,Reason';
-    const rows = signals.map(s =>
-        [s.time, s.asset, s.timeframe, s.indicator, s.side, s.confidence, '"' + String(s.reason).replace(/"/g, '""') + '"'].join(',')
-    );
+    const header = 'Time,Asset,Timeframe,Indicator,Side,Confidence,PositionSize,KellyFraction,ShouldTrade,Reason';
+    const rows = signals.map(s => {
+        const posSize = s.position_sizing?.position_size ?? '';
+        const kelly = s.position_sizing?.kelly_fraction ?? '';
+        const shouldTrade = s.position_sizing?.should_trade ? 'YES' : (s.position_sizing ? 'NO' : '');
+        return [s.time, s.asset, s.timeframe, s.indicator, s.side, s.confidence, posSize, kelly, shouldTrade, '"' + String(s.reason).replace(/"/g, '""') + '"'].join(',');
+    });
     const csv = [header].concat(rows).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
