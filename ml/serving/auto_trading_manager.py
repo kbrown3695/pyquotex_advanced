@@ -273,7 +273,7 @@ class AutoTradingManager:
             if not status.is_active
         ]
 
-    def process_signal(self, signal: TradeSignal) -> Dict:
+    async def process_signal(self, signal: TradeSignal) -> Dict:
         """Process a trade signal for selected pairs only.
 
         Args:
@@ -313,14 +313,18 @@ class AutoTradingManager:
             self.pair_status[signal.asset].last_signal_confidence = signal.confidence
             self.pair_status[signal.asset].signals_today += 1
 
-        # Process through automated trader (async)
-        return {
-            'executed': False,
-            'reason': 'Signal queued for processing',
-            'asset': signal.asset,
-            'confidence': signal.confidence,
-            'queued': True
-        }
+        # Process through automated trader (BUG FIX #13: Actually execute the signal)
+        result = await self.automated_trader.process_signal(signal)
+
+        # Track if trade was executed
+        if result.get('executed'):
+            self.record_executed_trade(
+                asset=signal.asset,
+                side=signal.side,
+                amount=result['trade'].amount if result.get('trade') else 0.0
+            )
+
+        return result
 
     def record_executed_trade(self, asset: str, side: str, amount: float) -> None:
         """Record a successfully executed trade.
@@ -348,9 +352,32 @@ class AutoTradingManager:
         total_signals = sum(p.signals_today for p in self.pair_status.values())
         total_trades = sum(p.trades_executed for p in self.pair_status.values())
 
-        # Get constraint and health status
-        constraints = self.constraint_tracker.get_status()
-        health = self.health_monitor.get_health_status()
+        # Get constraint status (don't fail if this errors)
+        constraints = {}
+        try:
+            constraints = self.constraint_tracker.get_status()
+        except Exception as e:
+            self.logger.warning(f"Could not get constraint status: {e}")
+
+        # Get health status (don't fail if this errors)
+        health_data = {
+            'status': 'UNKNOWN',
+            'latency_ms': 0,
+            'stale_assets': [],
+            'uptime_percent': 0,
+            'alerts': []
+        }
+        try:
+            health = self.health_monitor.get_health_status()
+            health_data = {
+                'status': health.connection_health,
+                'latency_ms': health.message_latency_ms,
+                'stale_assets': health.stale_assets,
+                'uptime_percent': health.estimated_uptime_percent,
+                'alerts': health.alerts
+            }
+        except Exception as e:
+            self.logger.warning(f"Could not get health status: {e}")
 
         return {
             'enabled': self.is_enabled,
@@ -375,13 +402,7 @@ class AutoTradingManager:
                 }
             },
             'constraints': constraints,
-            'health': {
-                'status': health.connection_health,
-                'latency_ms': health.message_latency_ms,
-                'stale_assets': health.stale_assets,
-                'uptime_percent': health.estimated_uptime_percent,
-                'alerts': health.alerts
-            }
+            'health': health_data
         }
 
     def get_pair_statuses(self) -> Dict[str, Dict]:

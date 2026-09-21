@@ -66,6 +66,24 @@ class BinaryOptionsTradingSession:
 
         logger.info(f"Trading session initialized with balance: ${starting_balance:.2f}")
 
+    def update_balance(self, new_balance: float) -> None:
+        """Update session with actual account balance from broker.
+
+        Args:
+            new_balance: Updated balance from Quotex
+        """
+        self.starting_balance = new_balance
+
+        # Update money manager
+        if self.money_manager and hasattr(self.money_manager, 'config'):
+            self.money_manager.config.account_balance = new_balance
+
+        # Update risk manager
+        if self.risk_manager and hasattr(self.risk_manager, '_update_session_balance'):
+            self.risk_manager._update_session_balance(new_balance)
+
+        logger.info(f"Trading session balance updated: ${new_balance:.2f}")
+
     def get_trade_recommendation(
         self,
         signal_confidence: float,

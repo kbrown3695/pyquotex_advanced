@@ -1,0 +1,497 @@
+<!-- Trading Configuration Modal -->
+<div id="tradingConfigModal" class="modal hidden">
+    <div class="modal-content config-modal">
+        <div class="modal-header">
+            <h2>⚙️ Trading Configuration</h2>
+            <button class="close-btn" onclick="closeConfigModal()">&times;</button>
+        </div>
+
+        <div class="modal-body">
+            <!-- Risk Management Section -->
+            <div class="config-section">
+                <h3>💰 Risk Management</h3>
+                <div class="form-group">
+                    <label for="riskPercentInput">Risk Per Trade (%)</label>
+                    <input type="number" id="riskPercentInput" min="0.1" max="50" step="0.1" value="2.0">
+                    <small>Percentage of account balance risked per trade</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="maxPositionInput">Max Position Size (%)</label>
+                    <input type="number" id="maxPositionInput" min="1" max="100" step="1" value="10">
+                    <small>Maximum amount per trade as % of balance</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="minTradeInput">Minimum Trade Amount ($)</label>
+                    <input type="number" id="minTradeInput" min="0.1" max="10000" step="0.1" value="1.0">
+                    <small>Minimum amount required for a trade</small>
+                </div>
+            </div>
+
+            <!-- Trading Frequency Section -->
+            <div class="config-section">
+                <h3>⏱️ Trading Frequency</h3>
+
+                <div class="form-group">
+                    <label for="timeframeSelect">Timeframe (Candle Period)</label>
+                    <select id="timeframeSelect">
+                        <option value="1m">1 Minute</option>
+                        <option value="5m">5 Minutes</option>
+                        <option value="15m">15 Minutes</option>
+                        <option value="30m">30 Minutes</option>
+                        <option value="1h">1 Hour</option>
+                    </select>
+                    <small>Time period for each candle (ML signal frequency)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="minTimeBetweenInput">Min Time Between Trades (seconds)</label>
+                    <input type="number" id="minTimeBetweenInput" min="1" max="300" step="1" value="5">
+                    <small>Minimum seconds to wait between consecutive trades</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="maxTradesPerDayInput">Max Trades Per Day</label>
+                    <input type="number" id="maxTradesPerDayInput" min="1" max="1000" step="1" value="100">
+                    <small>Maximum number of trades allowed in a single day</small>
+                </div>
+            </div>
+
+            <!-- Trading Hours Section -->
+            <div class="config-section">
+                <h3>🕐 Trading Hours</h3>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="startHourInput">Start Hour</label>
+                        <input type="number" id="startHourInput" min="0" max="23" step="1" value="0">
+                        <small>Hour to start trading (0-23)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="endHourInput">End Hour</label>
+                        <input type="number" id="endHourInput" min="0" max="23" step="1" value="23">
+                        <small>Hour to stop trading (0-23)</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Confidence Threshold Section -->
+            <div class="config-section">
+                <h3>📊 Signal Confidence</h3>
+
+                <div class="form-group">
+                    <label for="minConfidenceInput">Minimum Confidence (%)</label>
+                    <input type="number" id="minConfidenceInput" min="0" max="100" step="1" value="50">
+                    <small>Minimum ML signal confidence to execute a trade</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="targetReturnInput">Expected Return Target (%)</label>
+                    <input type="number" id="targetReturnInput" min="0.1" max="100" step="0.1" value="2.5">
+                    <small>Expected return % when placing a trade</small>
+                </div>
+            </div>
+
+            <!-- Loss Limits Section -->
+            <div class="config-section">
+                <h3>⛔ Loss Limits</h3>
+
+                <div class="form-group">
+                    <label for="dailyLossLimitInput">Daily Loss Limit ($)</label>
+                    <input type="number" id="dailyLossLimitInput" min="0" max="100000" step="1" value="500">
+                    <small>Stop trading if daily losses exceed this amount</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="maxDrawdownInput">Max Drawdown (%)</label>
+                    <input type="number" id="maxDrawdownInput" min="1" max="100" step="1" value="20">
+                    <small>Stop trading if account drops by this percentage</small>
+                </div>
+            </div>
+
+            <!-- Selected Pairs Section -->
+            <div class="config-section">
+                <h3>📈 Selected Trading Pairs</h3>
+                <div id="pairsList" class="pairs-list">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Current Settings Display -->
+            <div class="config-section">
+                <h3>📋 Current Settings Summary</h3>
+                <div id="settingsSummary" class="settings-summary">
+                    <!-- Auto-populated -->
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="saveConfiguration()">
+                💾 Save Configuration
+            </button>
+            <button class="btn btn-secondary" onclick="resetConfiguration()">
+                🔄 Reset to Defaults
+            </button>
+            <button class="btn btn-secondary" onclick="closeConfigModal()">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Trading Configuration Modal Styles */
+.config-modal {
+    max-width: 900px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.config-section {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.config-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #1f2937;
+    font-size: 16px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group:last-child {
+    margin-bottom: 0;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #374151;
+    font-size: 14px;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-group small {
+    display: block;
+    margin-top: 4px;
+    color: #9ca3af;
+    font-size: 12px;
+}
+
+.pairs-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.pair-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pair-item:hover {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.pair-item.active {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.pair-item input {
+    margin-right: 8px;
+    cursor: pointer;
+}
+
+.settings-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.summary-item {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 5px;
+    padding: 12px;
+}
+
+.summary-label {
+    font-size: 12px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.summary-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #667eea;
+    font-family: 'Courier New', monospace;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 10px;
+    padding: 20px;
+    border-top: 1px solid #e5e7eb;
+    justify-content: flex-end;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: #667eea;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #5568d3;
+}
+
+.btn-secondary {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.btn-secondary:hover {
+    background: #d1d5db;
+}
+</style>
+
+<script>
+// Trading Configuration Management
+const DEFAULT_CONFIG = {
+    riskPercent: 2.0,
+    maxPositionPercent: 10.0,
+    minTradeAmount: 1.0,
+    timeframe: '1m',
+    minTimeBetweenTrades: 5,
+    maxTradesPerDay: 100,
+    startHour: 0,
+    endHour: 23,
+    minConfidence: 50,
+    targetReturn: 2.5,
+    dailyLossLimit: 500,
+    maxDrawdown: 20,
+    selectedPairs: []
+};
+
+let currentConfig = { ...DEFAULT_CONFIG };
+
+function openConfigModal() {
+    document.getElementById('tradingConfigModal').classList.remove('hidden');
+    loadConfiguration();
+    updateSettingsSummary();
+}
+
+function closeConfigModal() {
+    document.getElementById('tradingConfigModal').classList.add('hidden');
+}
+
+async function loadConfiguration() {
+    try {
+        // Try to load from backend
+        const config = await eel.get_trading_config()();
+        currentConfig = { ...DEFAULT_CONFIG, ...config };
+    } catch (e) {
+        // Use default config if backend not available
+        currentConfig = { ...DEFAULT_CONFIG };
+    }
+
+    // Update UI elements
+    document.getElementById('riskPercentInput').value = currentConfig.riskPercent;
+    document.getElementById('maxPositionInput').value = currentConfig.maxPositionPercent;
+    document.getElementById('minTradeInput').value = currentConfig.minTradeAmount;
+    document.getElementById('timeframeSelect').value = currentConfig.timeframe;
+    document.getElementById('minTimeBetweenInput').value = currentConfig.minTimeBetweenTrades;
+    document.getElementById('maxTradesPerDayInput').value = currentConfig.maxTradesPerDay;
+    document.getElementById('startHourInput').value = currentConfig.startHour;
+    document.getElementById('endHourInput').value = currentConfig.endHour;
+    document.getElementById('minConfidenceInput').value = currentConfig.minConfidence;
+    document.getElementById('targetReturnInput').value = currentConfig.targetReturn;
+    document.getElementById('dailyLossLimitInput').value = currentConfig.dailyLossLimit;
+    document.getElementById('maxDrawdownInput').value = currentConfig.maxDrawdown;
+
+    // Load pairs
+    loadPairsList();
+}
+
+async function loadPairsList() {
+    try {
+        const pairs = await eel.get_selected_pairs()();
+        const pairsList = document.getElementById('pairsList');
+
+        pairsList.innerHTML = pairs.map(pair => `
+            <div class="pair-item ${currentConfig.selectedPairs.includes(pair) ? 'active' : ''}">
+                <input type="checkbox" value="${pair}"
+                    ${currentConfig.selectedPairs.includes(pair) ? 'checked' : ''}
+                    onchange="togglePair('${pair}')">
+                <label>${pair}</label>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Failed to load pairs:', e);
+    }
+}
+
+function togglePair(pair) {
+    const index = currentConfig.selectedPairs.indexOf(pair);
+    if (index > -1) {
+        currentConfig.selectedPairs.splice(index, 1);
+    } else {
+        currentConfig.selectedPairs.push(pair);
+    }
+    updateSettingsSummary();
+}
+
+function updateSettingsSummary() {
+    const summary = document.getElementById('settingsSummary');
+
+    // Collect current values
+    const config = {
+        riskPercent: parseFloat(document.getElementById('riskPercentInput').value || 2),
+        maxPositionPercent: parseFloat(document.getElementById('maxPositionInput').value || 10),
+        minTradeAmount: parseFloat(document.getElementById('minTradeInput').value || 1),
+        timeframe: document.getElementById('timeframeSelect').value || '1m',
+        minTimeBetweenTrades: parseInt(document.getElementById('minTimeBetweenInput').value || 5),
+        maxTradesPerDay: parseInt(document.getElementById('maxTradesPerDayInput').value || 100),
+        startHour: parseInt(document.getElementById('startHourInput').value || 0),
+        endHour: parseInt(document.getElementById('endHourInput').value || 23),
+        minConfidence: parseInt(document.getElementById('minConfidenceInput').value || 50),
+        targetReturn: parseFloat(document.getElementById('targetReturnInput').value || 2.5),
+        dailyLossLimit: parseFloat(document.getElementById('dailyLossLimitInput').value || 500),
+        maxDrawdown: parseFloat(document.getElementById('maxDrawdownInput').value || 20)
+    };
+
+    summary.innerHTML = `
+        <div class="summary-item">
+            <div class="summary-label">Risk Per Trade</div>
+            <div class="summary-value">${config.riskPercent}%</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Max Position</div>
+            <div class="summary-value">${config.maxPositionPercent}%</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Minimum Trade</div>
+            <div class="summary-value">$${config.minTradeAmount}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Timeframe</div>
+            <div class="summary-value">${config.timeframe}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Max Trades/Day</div>
+            <div class="summary-value">${config.maxTradesPerDay}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Trading Hours</div>
+            <div class="summary-value">${config.startHour}:00 - ${config.endHour}:00</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Min Confidence</div>
+            <div class="summary-value">${config.minConfidence}%</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Daily Loss Limit</div>
+            <div class="summary-value">$${config.dailyLossLimit}</div>
+        </div>
+    `;
+}
+
+async function saveConfiguration() {
+    // Collect all values
+    const newConfig = {
+        riskPercent: parseFloat(document.getElementById('riskPercentInput').value),
+        maxPositionPercent: parseFloat(document.getElementById('maxPositionInput').value),
+        minTradeAmount: parseFloat(document.getElementById('minTradeInput').value),
+        timeframe: document.getElementById('timeframeSelect').value,
+        minTimeBetweenTrades: parseInt(document.getElementById('minTimeBetweenInput').value),
+        maxTradesPerDay: parseInt(document.getElementById('maxTradesPerDayInput').value),
+        startHour: parseInt(document.getElementById('startHourInput').value),
+        endHour: parseInt(document.getElementById('endHourInput').value),
+        minConfidence: parseInt(document.getElementById('minConfidenceInput').value),
+        targetReturn: parseFloat(document.getElementById('targetReturnInput').value),
+        dailyLossLimit: parseFloat(document.getElementById('dailyLossLimitInput').value),
+        maxDrawdown: parseFloat(document.getElementById('maxDrawdownInput').value),
+        selectedPairs: currentConfig.selectedPairs
+    };
+
+    try {
+        const result = await eel.save_trading_config(newConfig)();
+        if (result.success) {
+            alert('✅ Configuration saved successfully!');
+            closeConfigModal();
+        } else {
+            alert('❌ Failed to save configuration: ' + result.error);
+        }
+    } catch (e) {
+        alert('❌ Error saving configuration: ' + e);
+    }
+}
+
+function resetConfiguration() {
+    if (confirm('🔄 Reset all settings to defaults?')) {
+        currentConfig = { ...DEFAULT_CONFIG };
+        loadConfiguration();
+        updateSettingsSummary();
+    }
+}
+
+// Keyboard shortcut: Alt+C to open config modal
+document.addEventListener('keydown', (e) => {
+    if (e.altKey && e.key === 'c') {
+        openConfigModal();
+    }
+});
+</script>

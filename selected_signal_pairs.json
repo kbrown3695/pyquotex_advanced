@@ -1,9 +1,6 @@
-[
-  "USD/INR (OTC)",
-  "CHF/JPY (OTC)",
-  "CAD/JPY (OTC)",
+﻿[
+  "AUD/CAD (OTC)",
+  "EUR/USD (OTC)",
   "USD/PKR (OTC)",
-  "CAD/CHF (OTC)",
-  "CHF/JPY",
-  "NZD/JPY (OTC)"
+  "USD/INR (OTC)"
 ]

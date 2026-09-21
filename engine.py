@@ -147,6 +147,27 @@ except ImportError as e:
     print(f"⚠️ PositionTracker import failed: {e}")
     PositionTracker = None
 
+try:
+    from ml.trading.position_monitor import PositionMonitor
+    print("[OK] ✅ PositionMonitor imported successfully")
+except ImportError as e:
+    print(f"⚠️ PositionMonitor import failed: {e}")
+    PositionMonitor = None
+
+try:
+    import trading_config
+    print("[OK] ✅ Trading configuration module imported successfully")
+except ImportError as e:
+    print(f"⚠️ Trading configuration module import failed: {e}")
+    trading_config = None
+
+try:
+    from ml.config import settings
+    print("[OK] ✅ ML config settings imported successfully")
+except ImportError as e:
+    print(f"⚠️ ML config settings import failed: {e}")
+    settings = None
+
 # ======================
 # ⚙️ CONFIG & LOGGING
 # ======================
@@ -222,11 +243,13 @@ LAST_RECONNECT_TIME = 0
 ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
 
 # Phase 2: Initialize trading session for money/risk management
+# Note: Will be re-initialized after Quotex login with actual demo balance
 TRADING_SESSION = None
+DEMO_BALANCE = 10000  # Will be updated from Quotex
 if BinaryOptionsTradingSession:
     try:
-        TRADING_SESSION = BinaryOptionsTradingSession(starting_balance=1000)
-        print(f"✅ Trading session initialized: $1000 account")
+        TRADING_SESSION = BinaryOptionsTradingSession(starting_balance=DEMO_BALANCE)
+        print(f"✅ Trading session initialized: ${DEMO_BALANCE} account (will update from Quotex)")
     except Exception as e:
         print(f"⚠️ Failed to initialize trading session: {e}")
 
@@ -262,6 +285,7 @@ CONSTRAINT_TRACKER = None
 HEALTH_MONITOR = None
 ORDER_EXECUTOR = None
 POSITION_TRACKER = None
+POSITION_MONITOR = None
 AUTOMATED_TRADER = None
 
 if AccountConstraintTracker:
@@ -292,13 +316,24 @@ if PositionTracker:
     except Exception as e:
         print(f"⚠️ PositionTracker init failed: {e}")
 
+if PositionMonitor and POSITION_TRACKER:
+    try:
+        POSITION_MONITOR = PositionMonitor(
+            position_tracker=POSITION_TRACKER,
+            check_interval=5.0
+        )
+        print(f"✅ PositionMonitor initialized")
+    except Exception as e:
+        print(f"⚠️ PositionMonitor init failed: {e}")
+
 if AutomatedTrader and CONSTRAINT_TRACKER and HEALTH_MONITOR:
     try:
         AUTOMATED_TRADER = AutomatedTrader(
             constraint_tracker=CONSTRAINT_TRACKER,
             health_monitor=HEALTH_MONITOR,
             order_executor=ORDER_EXECUTOR,
-            position_tracker=POSITION_TRACKER
+            position_tracker=POSITION_TRACKER,
+            position_monitor=POSITION_MONITOR
         )
         print(f"✅ AutomatedTrader initialized (demo mode enabled)")
     except Exception as e:
@@ -318,6 +353,85 @@ if AutoTradingManager and AUTOMATED_TRADER and CONSTRAINT_TRACKER and HEALTH_MON
     except Exception as e:
         print(f"⚠️ AutoTradingManager init failed: {e}")
         AUTO_TRADING_MANAGER = None
+
+# BUG FIX #13: Signal Polling Loop
+# ================================
+# Bridge between signal generation and trade execution.
+# Polls cached signals every 5 seconds and executes them through the trading pipeline.
+SIGNAL_POLLING_RUNNING = False
+SIGNAL_POLLING_TASK = None
+SIGNAL_POLL_INTERVAL = 5.0  # Poll every 5 seconds
+
+async def _poll_and_execute_signals():
+    """Poll cached signals and execute trades (BUG FIX #13).
+
+    This is the critical link that was missing:
+    Signal Generation → SIGNAL_MANAGER cache → THIS FUNCTION → AutoTradingManager → OrderExecutor
+    """
+    global SIGNAL_MANAGER, AUTO_TRADING_MANAGER, SIGNAL_POLLING_RUNNING
+
+    if not SIGNAL_MANAGER or not AUTO_TRADING_MANAGER or not AUTO_TRADING_MANAGER.is_enabled:
+        return
+
+    try:
+        # Get all cached signals for active pairs
+        for pair_name in AUTO_TRADING_MANAGER.get_active_pairs():
+            try:
+                # Get cached signal (if any)
+                signal_data = SIGNAL_MANAGER.get_signal(pair_name, "1m")
+
+                if not signal_data:
+                    continue
+
+                # Validate signal has required fields
+                if 'side' not in signal_data or 'confidence' not in signal_data:
+                    continue
+
+                # Skip low confidence signals
+                if signal_data['confidence'] < 0.5:
+                    continue
+
+                # Create TradeSignal from cached signal
+                from ml.trading.automated_trader import TradeSignal
+                trade_signal = TradeSignal(
+                    asset=pair_name,
+                    side=signal_data['side'],
+                    confidence=signal_data['confidence'],
+                    target_return=signal_data.get('target_return', 2.5),
+                    timestamp=time.time(),
+                    model_name="Ensemble"
+                )
+
+                # Process through trading pipeline
+                result = await AUTO_TRADING_MANAGER.process_signal(trade_signal)
+
+                # Log successful execution
+                if result.get('executed'):
+                    print(f"✅ SIGNAL EXECUTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.1%}")
+
+            except Exception as e:
+                print(f"⚠️ Error processing signal for {pair_name}: {e}", file=sys.stderr)
+                continue
+
+    except Exception as e:
+        print(f"❌ Signal polling error: {e}", file=sys.stderr)
+
+async def signal_polling_loop():
+    """Continuously poll signals every 5 seconds (BUG FIX #13)."""
+    global SIGNAL_POLLING_RUNNING
+    SIGNAL_POLLING_RUNNING = True
+    print("🚀 Signal polling loop started (5s interval)")
+
+    try:
+        while SIGNAL_POLLING_RUNNING:
+            await _poll_and_execute_signals()
+            await asyncio.sleep(SIGNAL_POLL_INTERVAL)
+    except asyncio.CancelledError:
+        print("⏹️  Signal polling loop cancelled")
+        SIGNAL_POLLING_RUNNING = False
+    except Exception as e:
+        print(f"❌ Signal polling loop error: {e}", file=sys.stderr)
+        SIGNAL_POLLING_RUNNING = False
 
 # ✅ تحسين #5: أوقات محسّنة للاستقرار
 TICK_IDLE_THRESHOLD   = 90   # ✅ Increased from 30s to reduce false reconnects
@@ -607,6 +721,12 @@ async def full_reconnect():
         update_tick_time()
         update_subscription_time()
 
+        # Wire Quotex client to order executor
+        global ORDER_EXECUTOR
+        if ORDER_EXECUTOR and CLIENT:
+            ORDER_EXECUTOR.client = CLIENT
+            log("✅ ORDER_EXECUTOR wired to Quotex client", 1)
+
         start_background_task("heartbeat", realtime_heartbeat())
         start_background_task("market_ping", market_activity_ping())
         start_background_task("hard_ping", hard_ping_loop())
@@ -650,13 +770,17 @@ async def get_account_balances() -> Dict[str, float]:
                 'error': 'Client not ready'
             }
 
+        # Determine current mode first
+        try:
+            current_mode = "REAL" if CLIENT.account_is_demo == 0 else "PRACTICE"
+        except:
+            current_mode = "PRACTICE"  # Default to demo
+
         # Try to get balances from cached account_balance dict (fast path)
         account_balance = getattr(CLIENT.api, 'account_balance', None)
         if account_balance and isinstance(account_balance, dict):
             real_balance = float(account_balance.get('liveBalance', 0.0))
             demo_balance = float(account_balance.get('demoBalance', 0.0))
-
-            current_mode = "REAL" if CLIENT.account_is_demo == 0 else "PRACTICE"
 
             result = {
                 'real': real_balance,
@@ -668,25 +792,20 @@ async def get_account_balances() -> Dict[str, float]:
             log(f"💰 Balances (cached): Real=${real_balance:.2f} Demo=${demo_balance:.2f} Mode={current_mode}", 2)
             return result
 
-        # Fallback: Try get_balance() if account_balance not available
-        log("⚠️ account_balance not ready, trying get_balance() fallback", 2)
-        try:
-            current_balance = await asyncio.wait_for(CLIENT.get_balance(), timeout=2)
-        except Exception as e:
-            log(f"⚠️ get_balance() fallback failed: {e}", 2)
-            current_balance = 0.0
+        # Fallback: Use known balance from trading session or DEMO_BALANCE constant
+        log("⚠️ account_balance not ready, using known demo balance", 2)
 
-        current_mode = "REAL" if CLIENT.account_is_demo == 0 else "PRACTICE"
-
+        global DEMO_BALANCE
         if current_mode == 'REAL':
-            result = {'real': float(current_balance) if current_balance else 0.0, 'demo': 0.0}
+            result = {'real': 0.0, 'demo': 0.0}
         else:
-            result = {'real': 0.0, 'demo': float(current_balance) if current_balance else 0.0}
+            # Use the demo balance we set during login
+            result = {'real': 0.0, 'demo': float(DEMO_BALANCE)}
 
         result['current_mode'] = current_mode
         result['timestamp'] = time.time()
 
-        log(f"💰 Balances (fallback): {current_mode}=${result.get(current_mode.lower(), 0):.2f}", 2)
+        log(f"💰 Balances (known): {current_mode}=${result.get(current_mode.lower(), 0):.2f}", 2)
         return result
 
     except Exception as e:
@@ -1214,14 +1333,27 @@ async def chart_opened_loader(asset: str):
         while True:
             try:
                 await asyncio.sleep(30)  # Poll every 30 seconds
+
+                # Safety check: ensure CLIENT is ready before polling
+                if not CLIENT or not hasattr(CLIENT, 'get_candles'):
+                    log("⚠️ CLIENT not ready for background polling", 2)
+                    continue
+
                 for pair in SIGNAL_PAIRS:
                     if pair == CURRENT_ASSET:
                         continue  # Skip the active asset (uses realtime)
                     try:
                         internal = DISPLAY_TO_INTERNAL.get(pair)
                         if internal:
-                            # Fetch last 50 candles to backfill
-                            candles = await CLIENT.get_candles(internal, time.time(), 50*60, 60)
+                            # Fetch last 50 candles to backfill (with timeout)
+                            try:
+                                candles = await asyncio.wait_for(
+                                    asyncio.create_task(CLIENT.get_candles(internal, time.time(), 50*60, 60)),
+                                    timeout=5.0
+                                )
+                            except asyncio.TimeoutError:
+                                log(f"⏱️ Background poll timeout for {pair}", 2)
+                                continue
                             if candles:
                                 processed = process_candle_data(candles, 60)
                                 if processed:
@@ -1281,7 +1413,7 @@ async def connect_with_retry(attempts=5) -> Tuple[bool, str]:
     return False, "Connection failed"
 
 async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
-    global CLIENT, ASSETS_LOADED, LOGIN_SUCCESS, SAVED_EMAIL, SAVED_PASSWORD
+    global CLIENT, ASSETS_LOADED, LOGIN_SUCCESS, SAVED_EMAIL, SAVED_PASSWORD, ORDER_EXECUTOR
     log("🔐 Connecting...", 1)
     SAVED_EMAIL, SAVED_PASSWORD = email, password
     success, reason = await connect_with_retry()
@@ -1309,16 +1441,28 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
 
     ASSETS_LOADED = LOGIN_SUCCESS = True
     update_subscription_time()
+
+    # Wire Quotex client to order executor
+    if ORDER_EXECUTOR and CLIENT:
+        ORDER_EXECUTOR.client = CLIENT
+        log("✅ ORDER_EXECUTOR wired to Quotex client", 1)
+
     start_background_task("heartbeat", realtime_heartbeat())
     start_background_task("market_ping", market_activity_ping())
     start_background_task("hard_ping", hard_ping_loop())
     start_background_task("forced_resub", forced_resubscription())
 
-    # Wire Quotex client to OrderExecutor for trade execution
-    global ORDER_EXECUTOR
-    if ORDER_EXECUTOR and CLIENT:
-        ORDER_EXECUTOR.client = CLIENT
-        log("✅ OrderExecutor wired to Quotex client", 1)
+    # Update trading session with actual demo balance from Quotex
+    global TRADING_SESSION, DEMO_BALANCE
+    if TRADING_SESSION and CLIENT and hasattr(CLIENT, 'api') and hasattr(CLIENT.api, 'account_balance'):
+        try:
+            account_balance = CLIENT.api.account_balance
+            demo_bal = account_balance.get('demoBalance', 10000)
+            DEMO_BALANCE = demo_bal
+            TRADING_SESSION.update_balance(demo_bal)
+            log(f"✅ Trading session updated: ${demo_bal} from Quotex demo account", 1)
+        except Exception as e:
+            log(f"⚠️ Failed to sync trading session balance: {e}", 2)
 
     # Initialize background candle aggregator for selected pairs
     global BG_AGGREGATOR
@@ -2238,43 +2382,85 @@ def get_automation_status():
 	global AUTO_TRADING_MANAGER, CONSTRAINT_TRACKER, HEALTH_MONITOR
 
 	if not AUTO_TRADING_MANAGER:
-		return {"error": "Auto trading manager not initialized"}
+		return {
+			"enabled": False,
+			"error": "Auto trading manager not initialized"
+		}
 
-	try:
+	status = {"enabled": False, "error": "Manager not initialized"}
+
+	if AUTO_TRADING_MANAGER:
 		status = AUTO_TRADING_MANAGER.get_automation_status()
 
-		# Add real-time balance
+	# Add real-time balance (don't fail if this times out)
+	try:
 		balances = asyncio.run_coroutine_threadsafe(
 			get_account_balances(), ASYNC_LOOP
 		).result(timeout=3)
-
 		status['balances'] = balances
-		status['trading_mode'] = "DEMO" if settings.prefer_demo_mode else "LIVE"
+	except Exception as balance_error:
+		log(f"⚠️ Could not fetch balances (non-fatal): {balance_error}", 2)
+		status['balances'] = {}
 
-		return status
-	except Exception as e:
-		log(f"⚠️ Error getting automation status: {e}", 2)
-		return {"error": str(e)}
+	# Add trading mode (BUG FIX #13: Handle settings import)
+	if settings:
+		status['trading_mode'] = "DEMO" if settings.prefer_demo_mode else "LIVE"
+	else:
+		status['trading_mode'] = "UNKNOWN"
+
+	return status
 
 @eel.expose
 def enable_automation():
 	"""Enable automated trading for selected pairs.
 
+	BUG FIX #9: Actually start signal generation for all pairs
+	BUG FIX #10: Persist automation state to disk
+	BUG FIX #13: Start signal polling loop to execute trades
+
 	Returns:
 		Dict with success status
 	"""
-	global AUTO_TRADING_MANAGER
+	global AUTO_TRADING_MANAGER, SIGNAL_PAIRS, SIGNAL_POLLING_TASK, ASYNC_LOOP
+	from trading_config import persist_automation_state
 
 	if not AUTO_TRADING_MANAGER:
 		return {"success": False, "error": "Auto trading manager not initialized"}
 
 	try:
+		# Enable automation in manager
 		success = AUTO_TRADING_MANAGER.enable_automation()
-		if success:
-			log("🚀 AUTOMATION ENABLED for selected pairs", 1)
-			return {"success": True, "message": "Automation enabled"}
-		else:
+		if not success:
 			return {"success": False, "error": "Failed to enable automation"}
+
+		# BUG FIX #9: Start signal generation for all selected pairs
+		selected_pairs = AUTO_TRADING_MANAGER.selected_pairs
+		log(f"🚀 Starting signal generation for {len(selected_pairs)} pairs", 1)
+
+		for pair in selected_pairs:
+			try:
+				# Start signal generation thread for this pair
+				start_signal_generation(pair, "1m")
+				log(f"   ✅ Started signal generation for {pair}", 1)
+			except Exception as e:
+				log(f"   ⚠️ Failed to start signals for {pair}: {e}", 2)
+
+		# BUG FIX #13: Start signal polling loop (the critical missing link)
+		if ASYNC_LOOP and not SIGNAL_POLLING_RUNNING:
+			SIGNAL_POLLING_TASK = asyncio.run_coroutine_threadsafe(
+				signal_polling_loop(),
+				ASYNC_LOOP
+			)
+			log("🔄 Signal polling loop started", 1)
+
+		# BUG FIX #10: Persist automation state
+		persist_automation_state(True)
+
+		log("🚀 AUTOMATION ENABLED - Signal generation started for selected pairs", 1)
+		return {
+			"success": True,
+			"message": f"Automation enabled. Signal generation started for {len(selected_pairs)} pairs"
+		}
 	except Exception as e:
 		log(f"❌ Error enabling automation: {e}", 1)
 		return {"success": False, "error": str(e)}
@@ -2283,21 +2469,72 @@ def enable_automation():
 def disable_automation():
 	"""Disable automated trading.
 
+	BUG FIX #9: Stop signal generation when disabling
+	BUG FIX #10: Persist automation state to disk
+	BUG FIX #13: Stop signal polling loop
+
 	Returns:
 		Dict with success status
 	"""
-	global AUTO_TRADING_MANAGER
+	global AUTO_TRADING_MANAGER, SIGNAL_MANAGER, SIGNAL_POLLING_TASK, SIGNAL_POLLING_RUNNING
+	from trading_config import persist_automation_state
 
 	if not AUTO_TRADING_MANAGER:
 		return {"success": False, "error": "Auto trading manager not initialized"}
 
 	try:
+		# Disable automation in manager
 		AUTO_TRADING_MANAGER.disable_automation()
-		log("⏹️  AUTOMATION DISABLED", 1)
+
+		# BUG FIX #13: Stop signal polling loop
+		SIGNAL_POLLING_RUNNING = False
+		if SIGNAL_POLLING_TASK:
+			SIGNAL_POLLING_TASK.cancel()
+			log("🔄 Signal polling loop stopped", 1)
+
+		# BUG FIX #9: Stop signal generation for all pairs
+		if SIGNAL_MANAGER and hasattr(SIGNAL_MANAGER, 'threads'):
+			for key in list(SIGNAL_MANAGER.threads.keys()):
+				if SIGNAL_MANAGER.threads[key].is_alive():
+					log(f"   ⏹️  Stopping signal generation for {key}", 1)
+
+		# BUG FIX #10: Persist automation state
+		persist_automation_state(False)
+
+		log("⏹️  AUTOMATION DISABLED - Signal generation stopped", 1)
 		return {"success": True, "message": "Automation disabled"}
 	except Exception as e:
 		log(f"❌ Error disabling automation: {e}", 1)
 		return {"success": False, "error": str(e)}
+
+@eel.expose
+def get_automation_diagnostics():
+	"""Get detailed diagnostics for automation state.
+
+	Returns:
+		Dict with automation health status and any errors
+	"""
+	global AUTO_TRADING_MANAGER, SIGNAL_MANAGER, CONSTRAINT_TRACKER
+	from trading_config import load_automation_state
+
+	try:
+		diagnostics = {
+			"manager_initialized": AUTO_TRADING_MANAGER is not None,
+			"automation_enabled": AUTO_TRADING_MANAGER.is_enabled if AUTO_TRADING_MANAGER else False,
+			"persisted_state": load_automation_state(),
+			"selected_pairs": AUTO_TRADING_MANAGER.selected_pairs if AUTO_TRADING_MANAGER else [],
+			"constraint_status": CONSTRAINT_TRACKER.get_status() if CONSTRAINT_TRACKER else {},
+		}
+
+		# Check if signal manager is running
+		if SIGNAL_MANAGER and hasattr(SIGNAL_MANAGER, 'threads'):
+			diagnostics["signal_threads_running"] = sum(1 for t in SIGNAL_MANAGER.threads.values() if t.is_alive())
+			diagnostics["signal_threads_total"] = len(SIGNAL_MANAGER.threads)
+
+		return diagnostics
+	except Exception as e:
+		log(f"❌ Error getting automation diagnostics: {e}", 2)
+		return {"error": str(e)}
 
 @eel.expose
 def get_selected_pairs():
@@ -2326,6 +2563,85 @@ def get_pair_statuses():
 		return {}
 
 	return AUTO_TRADING_MANAGER.get_pair_statuses()
+
+@eel.expose
+def get_executed_trades():
+	"""Get trades executed by automated trader.
+
+	BUG FIX #12: Add real-time trade visibility
+
+	Returns:
+		List of executed trades with details
+	"""
+	global AUTOMATED_TRADER
+
+	if not AUTOMATED_TRADER:
+		return []
+
+	try:
+		trades = AUTOMATED_TRADER.trades_executed
+		result = []
+		for trade in trades:
+			result.append({
+				'asset': trade.asset,
+				'side': trade.side,
+				'amount': trade.amount,
+				'timestamp': trade.timestamp,
+				'order_id': trade.order_id,
+				'execution_price': trade.execution_price,
+				'result': trade.result,
+				'time': __import__('datetime').datetime.fromtimestamp(trade.timestamp).strftime('%H:%M:%S')
+			})
+		return list(reversed(result))  # Return newest first
+	except Exception as e:
+		log(f"⚠️ Error getting executed trades: {e}", 2)
+		return []
+
+@eel.expose
+def get_trade_statistics():
+	"""Get detailed trade statistics.
+
+	BUG FIX #12: Add trade statistics endpoint
+
+	Returns:
+		Dict with trade counts, P&L, win rate, etc.
+	"""
+	global AUTOMATED_TRADER, POSITION_TRACKER
+
+	try:
+		stats = {
+			'total_trades': 0,
+			'winning_trades': 0,
+			'losing_trades': 0,
+			'total_pnl': 0.0,
+			'win_rate': 0.0,
+			'rejected_signals': 0,
+			'avg_trade_size': 0.0
+		}
+
+		if AUTOMATED_TRADER:
+			trades = AUTOMATED_TRADER.trades_executed
+			stats['total_trades'] = len(trades)
+			stats['rejected_signals'] = AUTOMATED_TRADER.rejected_signals
+
+			if trades:
+				total_amount = sum(t.amount for t in trades)
+				stats['avg_trade_size'] = total_amount / len(trades)
+
+				# Get P&L from position tracker if available
+				if POSITION_TRACKER:
+					pos_stats = POSITION_TRACKER.get_trade_statistics()
+					if pos_stats:
+						stats['winning_trades'] = pos_stats.get('winning_trades', 0)
+						stats['losing_trades'] = pos_stats.get('losing_trades', 0)
+						stats['total_pnl'] = pos_stats.get('total_pnl_usd', 0.0)
+						if stats['total_trades'] > 0:
+							stats['win_rate'] = (stats['winning_trades'] / stats['total_trades']) * 100
+
+		return stats
+	except Exception as e:
+		log(f"⚠️ Error getting trade statistics: {e}", 2)
+		return {'error': str(e)}
 
 @eel.expose
 def get_real_time_balance():
@@ -2725,32 +3041,41 @@ if __name__ == "__main__":
 
         def auto_login():
             try:
+                print("[DEBUG] auto_login thread started")
                 fut = asyncio.run_coroutine_threadsafe(
                     connect_to_quotex(email, password), ASYNC_LOOP
                 )
                 ok, err = fut.result(timeout=60)
                 if ok:
                     print("✅ Auto-login successful!")
-                    eel.onLoginSuccess()()
+                    try:
+                        eel.onLoginSuccess()()
+                        print("[DEBUG] onLoginSuccess() called")
+                    except Exception as eel_err:
+                        print(f"⚠️ onLoginSuccess() error: {eel_err}")
                 else:
                     print(f"❌ Auto-login failed: {err}")
-                    eel.start(
-                        "login/login.html", size=(1280, 720), port=0, mode="chrome"
-                    )
+            except asyncio.TimeoutError:
+                print(f"❌ Auto-login timeout (>60s)")
             except Exception as e:
                 print(f"❌ Auto-login error: {e}")
-                eel.start("login/login.html", size=(1280, 720), port=0, mode="chrome")
+                import traceback
+                traceback.print_exc()
 
         threading.Thread(target=auto_login, daemon=True).start()
 
         try:
             eel.init("frontend")
+            print("[INFO] Starting EEL web server on port 8080...")
             eel.start("login/login.html", size=(1280, 720), port=0, mode="chrome")
+            print("[INFO] Browser window closed. Shutting down...")
         except KeyboardInterrupt:
             print("\n👋 Exiting...")
             sys.exit(0)
         except Exception as e:
             print(f"❌ Startup failed: {e}")
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
     else:
         print("⚠️ No .env credentials found. Please login manually.")

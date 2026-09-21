@@ -452,16 +452,27 @@ async function refreshTradingStatus() {
     const balance = await eel.get_real_time_balance()();
     document.getElementById('currentBalance').textContent = '$' + balance.account_balance.toFixed(2);
 
-    // Get position statistics
-    const stats = await eel.get_position_statistics()();
-    document.getElementById('openPositions').textContent = stats.open_positions;
-    document.getElementById('totalTrades').textContent = stats.total_trades;
-    document.getElementById('winningTrades').textContent = stats.winning_trades;
-    document.getElementById('losingTrades').textContent = stats.losing_trades;
-    document.getElementById('winRate').textContent = stats.win_rate_percent.toFixed(1) + '%';
-    document.getElementById('totalPnL').textContent = '$' + stats.total_profit_loss_usd.toFixed(2);
+    // Get position statistics (BUG FIX #12)
+    const tradeStats = await eel.get_trade_statistics()();
+    if (tradeStats.error) {
+        document.getElementById('totalTrades').textContent = '0';
+        document.getElementById('winningTrades').textContent = '0';
+        document.getElementById('losingTrades').textContent = '0';
+        document.getElementById('winRate').textContent = '0.0%';
+        document.getElementById('totalPnL').textContent = '$0.00';
+    } else {
+        document.getElementById('totalTrades').textContent = tradeStats.total_trades;
+        document.getElementById('winningTrades').textContent = tradeStats.winning_trades;
+        document.getElementById('losingTrades').textContent = tradeStats.losing_trades;
+        document.getElementById('winRate').textContent = tradeStats.win_rate.toFixed(1) + '%';
+        document.getElementById('totalPnL').textContent = '$' + tradeStats.total_pnl.toFixed(2);
+    }
 
-    // Get recent trades
+    // Get executed trades (BUG FIX #12)
+    const executedTrades = await eel.get_executed_trades()();
+    updateExecutedTradesList(executedTrades);
+
+    // Also get recent trades for comparison
     const trades = await eel.get_recent_trades(5)();
     updateTradesList(trades);
 
@@ -486,6 +497,24 @@ function addLogEntry(message, type = 'info') {
 
     log.appendChild(entry);
     log.scrollTop = log.scrollHeight;
+}
+
+function updateExecutedTradesList(trades) {
+    // BUG FIX #12: Show executed trades in feed
+    if (!trades || trades.length === 0) return;
+
+    // Show recent executed trades in feed
+    trades.slice(0, 3).forEach(trade => {
+        if (trade.result === 'PENDING') {
+            addLogEntry(`🔄 ${trade.side} ${trade.asset} $${trade.amount.toFixed(2)} @ ${trade.time}`, 'info');
+        } else if (trade.result === 'WIN') {
+            addLogEntry(`✅ ${trade.side} ${trade.asset} WINNER $${trade.amount.toFixed(2)} @ ${trade.time}`, 'success');
+        } else if (trade.result === 'LOSS') {
+            addLogEntry(`❌ ${trade.side} ${trade.asset} LOSS $${trade.amount.toFixed(2)} @ ${trade.time}`, 'error');
+        } else {
+            addLogEntry(`📊 ${trade.side} ${trade.asset} $${trade.amount.toFixed(2)} @ ${trade.time}`, 'info');
+        }
+    });
 }
 
 function updateTradesList(trades) {

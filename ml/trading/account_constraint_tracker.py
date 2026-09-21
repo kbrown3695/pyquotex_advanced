@@ -270,10 +270,16 @@ class AccountConstraintTracker:
         self.trades_today += 1
         self.total_traded_today += amount
 
-        self.logger.info(
-            f"Trade recorded: ${amount:.2f} (Total today: ${self.total_traded_today:.2f}, "
-            f"Remaining: ${self.current_constraints.day_balance - amount:.2f})"
-        )
+        if self.current_constraints:
+            self.current_constraints.day_balance -= amount
+            remaining = self.current_constraints.day_balance
+
+            self.logger.info(
+                f"Trade recorded: ${amount:.2f} (Total today: ${self.total_traded_today:.2f}, "
+                f"Remaining: ${remaining:.2f})"
+            )
+        else:
+            self.logger.warning("Cannot record trade: no constraints loaded")
 
     def _log_constraint_change(self) -> None:
         """Log constraint status changes."""

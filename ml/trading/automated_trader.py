@@ -70,6 +70,7 @@ class AutomatedTrader:
         health_monitor: WebSocketHealthMonitor,
         order_executor: Optional[OrderExecutor] = None,
         position_tracker: Optional[PositionTracker] = None,
+        position_monitor: Optional[object] = None,
         trade_executor: Optional[Callable] = None,
         logger: Optional[logging.Logger] = None
     ):
@@ -80,6 +81,7 @@ class AutomatedTrader:
             health_monitor: WebSocket health monitor instance
             order_executor: OrderExecutor for placing orders
             position_tracker: PositionTracker for tracking positions
+            position_monitor: PositionMonitor for P&L tracking
             trade_executor: Legacy callable (for backwards compatibility)
             logger: Optional logger instance
         """
@@ -87,6 +89,7 @@ class AutomatedTrader:
         self.health_monitor = health_monitor
         self.order_executor = order_executor
         self.position_tracker = position_tracker or PositionTracker(logger)
+        self.position_monitor = position_monitor
         self.trade_executor = trade_executor
         self.logger = logger or logging.getLogger(__name__)
 
@@ -109,11 +112,15 @@ class AutomatedTrader:
     async def start(self) -> None:
         """Start automated trading."""
         self.is_running = True
+        if self.position_monitor:
+            self.position_monitor.start()
         self.logger.info("🚀 Automated trader started (DEMO MODE)")
 
     async def stop(self) -> None:
         """Stop automated trading."""
         self.is_running = False
+        if self.position_monitor:
+            self.position_monitor.stop()
         self.logger.info("⏹️  Automated trader stopped")
 
     async def process_signal(self, signal: TradeSignal) -> Dict:
@@ -299,6 +306,15 @@ class AutomatedTrader:
                         amount=position_size,
                         entry_price=order_result.execution_price
                     )
+
+                    # Register for position monitoring (auto-close on expiration)
+                    if self.position_monitor:
+                        duration = getattr(settings, 'position_duration_seconds', 300)
+                        self.position_monitor.register_position(
+                            position_id=pos_id,
+                            asset=signal.asset,
+                            duration_seconds=duration
+                        )
 
                     trade = ExecutedTrade(
                         asset=signal.asset,

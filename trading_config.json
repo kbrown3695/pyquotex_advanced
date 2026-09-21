@@ -1,0 +1,20 @@
+{
+  "riskPercent": 2,
+  "maxPositionPercent": 10,
+  "minTradeAmount": 20,
+  "timeframe": "1m",
+  "minTimeBetweenTrades": 5,
+  "maxTradesPerDay": 100,
+  "startHour": 0,
+  "endHour": 23,
+  "minConfidence": 50,
+  "targetReturn": 2.5,
+  "dailyLossLimit": 500,
+  "maxDrawdown": 20,
+  "selectedPairs": [
+    "USD/INR (OTC)",
+    "NZD/JPY (OTC)",
+    "USD/PKR (OTC)",
+    "CHF/JPY (OTC)"
+  ]
+}

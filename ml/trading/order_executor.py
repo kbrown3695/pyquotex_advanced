@@ -297,8 +297,15 @@ class OrderExecutor:
             Order result from API
         """
         try:
-            # Call Quotex API: client.buy(asset, duration, amount)
-            result = self.client.buy(asset, duration, amount)
+            # BUG FIX #7: Use correct async signature for Quotex.buy()
+            # Signature: async def buy(self, amount: float, asset: str, direction: str, duration: int, time_mode: str = "TIME")
+            result = await self.client.buy(
+                amount=amount,
+                asset=asset,
+                direction="call",
+                duration=duration,
+                time_mode="TIME"
+            )
             return result
         except Exception as e:
             self.logger.error(f"API BUY error: {e}")
@@ -317,7 +324,7 @@ class OrderExecutor:
         try:
             # Call Quotex API: client.sell_option()
             # Note: Quotex sell_option() closes the last open position
-            result = self.client.sell_option()
+            result = await self.client.sell_option()
             return result
         except Exception as e:
             self.logger.error(f"API SELL error: {e}")

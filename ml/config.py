@@ -46,6 +46,7 @@ class _Settings:
     # Trade execution
     max_trades_per_day: int = 100
     min_time_between_trades_sec: float = 5.0
+    position_duration_seconds: int = 300  # Binary option duration (5 minutes)
 
     # ==================== Phase H: Timezone & Localization ====================
     # Server timezone offset (from Quotex profile)
