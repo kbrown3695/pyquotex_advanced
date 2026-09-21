@@ -35,7 +35,7 @@ class _Settings:
     consecutive_stale_max: int = 10  # Alert after 10 consecutive stale events
 
     # ==================== Phase H: Automation ====================
-    enable_automated_trading: bool = False  # Set to True to enable auto-trading
+    enable_automated_trading: bool = True  # ✅ ENABLED: Auto-trading active
     automation_start_hour: int = 0  # 24-hour format (0-23)
     automation_end_hour: int = 23
 
