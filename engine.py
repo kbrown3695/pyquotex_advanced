@@ -1294,6 +1294,13 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
         log(f"❌ Failed to switch to PRACTICE account: {e}", 1)
         return False, f"Account switch failed: {e}"
 
+    # Initialize demo balance (triggers WebSocket account_balance population)
+    try:
+        result = await asyncio.wait_for(CLIENT.edit_practice_balance(10000), timeout=2)
+        log(f"✅ Demo balance initialized: {result}", 1)
+    except Exception as e:
+        log(f"⚠️ Failed to initialize demo balance (non-fatal): {e}", 2)
+
     try:
         await CLIENT.get_all_assets()
     except Exception as e:

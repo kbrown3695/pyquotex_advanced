@@ -140,6 +140,124 @@ async def deep_inspect():
     print(f"  account_is_demo: {getattr(client, 'account_is_demo', 'N/A')}")
     print(f"  Is this accurate? (Should be 1 for PRACTICE mode)")
 
+    # === TEST 9: BALANCE MODAL TRIGGER - Switch account and watch balance ===
+    print("\n" + "="*80)
+    print("TEST 9: Balance initialization after account switch")
+    print("="*80)
+
+    print("📋 Switching to PRACTICE account...")
+    try:
+        await client.change_account("PRACTICE")
+        print("✅ Switched to PRACTICE")
+    except Exception as e:
+        print(f"❌ Failed to switch: {e}")
+
+    print("\n🔍 Checking account_balance BEFORE any balance calls...")
+    if hasattr(client.api, 'account_balance'):
+        ab = getattr(client.api, 'account_balance', None)
+        print(f"   account_balance: {ab}")
+    else:
+        print(f"   ❌ No account_balance attribute")
+
+    print("\n⏳ Waiting 2 seconds for WebSocket to populate...")
+    await asyncio.sleep(2)
+
+    print("🔍 Checking account_balance AFTER wait...")
+    if hasattr(client.api, 'account_balance'):
+        ab = getattr(client.api, 'account_balance', None)
+        print(f"   account_balance: {ab}")
+    else:
+        print(f"   ❌ No account_balance attribute")
+
+    print("\n💰 Calling get_balance()...")
+    try:
+        balance = await asyncio.wait_for(client.get_balance(), timeout=2)
+        print(f"   get_balance() returned: {balance}")
+    except Exception as e:
+        print(f"   ❌ Error: {e}")
+
+    print("\n🔍 Checking account_balance AFTER get_balance()...")
+    if hasattr(client.api, 'account_balance'):
+        ab = getattr(client.api, 'account_balance', None)
+        print(f"   account_balance: {ab}")
+        if isinstance(ab, dict):
+            print(f"\n   Extracted values:")
+            print(f"     liveBalance: ${ab.get('liveBalance', 0):.2f}")
+            print(f"     demoBalance: ${ab.get('demoBalance', 0):.2f}")
+            print(f"     dayBalance: ${ab.get('dayBalance', 0):.2f}")
+            print(f"     dayLimit: ${ab.get('dayLimit', 0):.2f}")
+    else:
+        print(f"   ❌ No account_balance attribute")
+
+    # === TEST 10: Try get_user_profile or similar ===
+    print("\n" + "="*80)
+    print("TEST 10: Other balance-related methods")
+    print("="*80)
+
+    balance_methods = [m for m in dir(client) if 'balance' in m.lower() or 'account' in m.lower() or 'user' in m.lower()]
+    print(f"Methods containing 'balance', 'account', or 'user':")
+    for method in balance_methods:
+        print(f"   - {method}")
+
+    # Try some methods
+    if hasattr(client, 'get_user_profile'):
+        try:
+            print(f"\n📞 Trying client.get_user_profile()...")
+            profile = await asyncio.wait_for(client.get_user_profile(), timeout=2)
+            print(f"   ✅ Result: {profile}")
+        except Exception as e:
+            print(f"   ❌ {type(e).__name__}: {e}")
+
+    if hasattr(client, 'get_account_info'):
+        try:
+            print(f"\n📞 Trying client.get_account_info()...")
+            info = await asyncio.wait_for(client.get_account_info(), timeout=2)
+            print(f"   ✅ Result: {info}")
+        except Exception as e:
+            print(f"   ❌ {type(e).__name__}: {e}")
+
+    if hasattr(client.api, 'get_account_balance'):
+        try:
+            print(f"\n📞 Trying client.api.get_account_balance()...")
+            bal = await asyncio.wait_for(client.api.get_account_balance(), timeout=2)
+            print(f"   ✅ Result: {bal}")
+        except Exception as e:
+            print(f"   ❌ {type(e).__name__}: {e}")
+
+    # === TEST 11: Try edit_practice_balance - THE BALANCE MODAL TRIGGER! ===
+    print("\n" + "="*80)
+    print("TEST 11: edit_practice_balance() - BALANCE MODAL TRIGGER")
+    print("="*80)
+
+    if hasattr(client, 'edit_practice_balance'):
+        try:
+            print(f"\n🎯 Trying client.edit_practice_balance()...")
+            # Try to set balance to 10000
+            result = await asyncio.wait_for(client.edit_practice_balance(10000), timeout=3)
+            print(f"   ✅ Result: {result}")
+
+            print(f"\n🔍 Checking account_balance after edit_practice_balance()...")
+            if hasattr(client.api, 'account_balance'):
+                ab = getattr(client.api, 'account_balance', None)
+                print(f"   {ab}")
+                if isinstance(ab, dict):
+                    print(f"\n   Extracted values:")
+                    print(f"     liveBalance: ${ab.get('liveBalance', 0):.2f}")
+                    print(f"     demoBalance: ${ab.get('demoBalance', 0):.2f}")
+                    print(f"     dayBalance: ${ab.get('dayBalance', 0):.2f}")
+                    print(f"     dayLimit: ${ab.get('dayLimit', 0):.2f}")
+        except Exception as e:
+            print(f"   ❌ {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("❌ edit_practice_balance() not found")
+
+    print("\n🔍 Final account_balance state:")
+    if hasattr(client.api, 'account_balance'):
+        ab = getattr(client.api, 'account_balance', None)
+        print(f"   {ab}")
+
     await client.close()
     print("\n✅ Deep inspection complete")
 

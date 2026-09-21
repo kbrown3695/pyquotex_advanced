@@ -111,6 +111,15 @@ class AccountConstraintTracker:
         day_limit = float(account_balance.get('dayLimit', 0.0))
         day_balance = float(account_balance.get('dayBalance', 0.0))
 
+        # FIX: For PRACTICE mode, Quotex doesn't populate dayBalance/dayLimit
+        # Use demoBalance as the trading limit instead
+        if account_is_demo == 1 and day_balance == 0.0 and demo_balance > 0.0:
+            day_balance = demo_balance
+            day_limit = demo_balance
+            self.logger.info(
+                f"🔧 PRACTICE mode: Using demoBalance (${demo_balance:.2f}) as dayBalance"
+            )
+
         # Profile minimum
         minimum_amount = 1.0
         if profile_data and isinstance(profile_data, dict):
