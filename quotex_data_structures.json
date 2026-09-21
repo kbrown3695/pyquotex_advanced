@@ -1,0 +1,229 @@
+{
+  "quotex_data_flow": {
+    "description": "Complete data structures sent by Quotex API based on pyquotex inspection",
+    "timestamp": "2026-09-18T00:00:00Z",
+
+    "1_account_balance": {
+      "description": "Account financial data returned by get_balance()",
+      "accessed_via": "client.api.account_balance",
+      "type": "dict",
+      "example": {
+        "liveBalance": 0,
+        "demoBalance": 10000,
+        "tournamentsBalances": {},
+        "dayLimit": 0,
+        "dayBalance": 0
+      },
+      "field_explanations": {
+        "liveBalance": "Real money account balance in USD/EUR",
+        "demoBalance": "Practice account balance (virtual currency)",
+        "tournamentsBalances": "Balances for tournament competitions",
+        "dayLimit": "Daily maximum trading amount",
+        "dayBalance": "Daily balance tracker"
+      }
+    },
+
+    "2_session_data": {
+      "description": "Authentication and session credentials",
+      "accessed_via": "client.api.session_data",
+      "type": "dict",
+      "example": {
+        "cookies": "laravel_session=eyJpdiI6IlRYTkJWUXlVRnluaXdKWlByanJNQUE9PSIsInZhbHVlIjoiZm5DdFlGNDEvMGJRRThGaGVPbUZMN24...; lang=en; remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d=eyJpdiI6IlRYTkJWUXlVRnluaXdKWlByanJNQUE9PSI...",
+        "token": "jnSI1FTlvaaYIHc5ysLBPMMD9WH4wUrSSRAQvXxp",
+        "user_agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0"
+      },
+      "field_explanations": {
+        "cookies": "Laravel session cookies + language + remember-me + Cloudflare tracking",
+        "token": "API authentication token for WebSocket/HTTP requests",
+        "user_agent": "Browser identification string"
+      }
+    },
+
+    "3_websocket_messages": {
+      "description": "Real-time data sent via WebSocket connection",
+      "accessed_via": "client.api.wss_message",
+      "type": "list or dict",
+      "examples": {
+        "subscription_list": [
+          ["EURUSD", 26],
+          ["AUDCAD_otc", 60]
+        ],
+        "candle_data": {
+          "asset": "AUDCAD_otc",
+          "period": 60,
+          "history": [
+            [1789745599, 0.95123, 0.95234, 0.95100, 0.95200, 12345],
+            [1789745669, 0.95200, 0.95250, 0.95180, 0.95220, 15234]
+          ]
+        }
+      },
+      "candle_format": {
+        "description": "OHLCV format for candlestick data",
+        "fields": [
+          "Unix timestamp (seconds)",
+          "Open price",
+          "High price",
+          "Low price",
+          "Close price",
+          "Volume"
+        ]
+      }
+    },
+
+    "4_profile_data": {
+      "description": "User profile information",
+      "accessed_via": "client.api.profile",
+      "type": "Profile object",
+      "attributes": {
+        "profile_id": "Unique user identifier (int)",
+        "nick_name": "Username/display name (str)",
+        "name": "Full user name (str)",
+        "country": "Country code ISO-2 (str)",
+        "country_name": "Full country name (str)",
+        "currency_code": "Account currency (str: USD, EUR, GBP)",
+        "currency_symbol": "Currency symbol (str: $, €)",
+        "demo_balance": "Demo account balance (float)",
+        "live_balance": "Real account balance (float)",
+        "profile_level": "Account tier/level (int)",
+        "minimum_amount": "Minimum trade amount (float)",
+        "avatar": "User avatar URL (str)",
+        "offset": "Timezone offset (int)",
+        "msg": "User message/status (str)"
+      },
+      "note": "Many fields are initially None and populate after API calls"
+    },
+
+    "5_api_endpoints": {
+      "description": "HTTP API endpoints Quotex likely uses",
+      "base_urls": {
+        "https": "client.api.https_url",
+        "wss": "client.api.wss_url",
+        "host": "client.api.host"
+      },
+      "probable_endpoints": {
+        "authentication": [
+          "POST /api/login",
+          "POST /api/token_login2fa",
+          "POST /api/logout"
+        ],
+        "account": [
+          "GET /api/profile",
+          "GET /api/balance",
+          "GET /api/account_settings"
+        ],
+        "market_data": [
+          "GET /api/instruments",
+          "GET /api/candles/{asset}/{period}?count=100",
+          "GET /api/realtime/price/{asset}",
+          "GET /api/signals"
+        ],
+        "trading": [
+          "POST /api/trades/buy",
+          "POST /api/trades/sell",
+          "GET /api/trades/history",
+          "GET /api/trades/open"
+        ],
+        "websocket": [
+          "WS wss://ws.quotex.io/websocket",
+          "Sends: subscribe_realtime_candle",
+          "Receives: OHLC updates + signals"
+        ]
+      }
+    },
+
+    "6_trading_methods": {
+      "description": "Methods that interact with Quotex API and send data",
+      "send_data_methods": [
+        "buy(asset, duration, amount)",
+        "sell_option()",
+        "buy_expiration(asset, expiration_time)",
+        "subscribe_realtime_candle(asset, period)",
+        "subscribe_signals()",
+        "change_account(account_type)"
+      ],
+      "receive_data_methods": [
+        "get_balance()",
+        "get_instruments()",
+        "get_candle_data(asset, period, count)",
+        "get_history(account_type)",
+        "get_profile()",
+        "get_trader_history()"
+      ]
+    },
+
+    "7_websocket_flow": {
+      "description": "How WebSocket real-time data flows",
+      "sequence": [
+        {
+          "step": 1,
+          "direction": "Client → Server",
+          "action": "client.subscribe_realtime_candle('EURUSD_otc', 60)",
+          "data_sent": "Asset symbol + period"
+        },
+        {
+          "step": 2,
+          "direction": "Server → Client",
+          "action": "WebSocket initial data",
+          "data_sent": {
+            "asset": "EURUSD_otc",
+            "period": 60,
+            "history": "Last 50 candles"
+          }
+        },
+        {
+          "step": 3,
+          "direction": "Server → Client",
+          "action": "Real-time updates",
+          "frequency": "On each candle close",
+          "data_sent": "New OHLC + volume"
+        },
+        {
+          "step": 4,
+          "direction": "Client reads",
+          "action": "Access client.api.wss_message",
+          "data_format": "Latest candle data"
+        }
+      ]
+    },
+
+    "8_data_security": {
+      "encryption": [
+        "Session cookies: Laravel encryption",
+        "API tokens: In-transit encrypted (HTTPS/WSS)",
+        "WebSocket: TLS/SSL (WSS protocol)"
+      ],
+      "visible_to_api": [
+        "Account balances",
+        "Trading history",
+        "User profile (name, location)",
+        "Subscription data",
+        "Open positions"
+      ],
+      "not_visible": [
+        "Real password",
+        "Raw session encryption keys",
+        "Other users' data"
+      ]
+    },
+
+    "9_access_patterns": {
+      "to_get_account_balance": [
+        "1. Call: await client.get_balance()",
+        "2. Access: client.api.account_balance['demoBalance']",
+        "Returns: float (10000.0 for demo)"
+      ],
+      "to_get_realtime_candles": [
+        "1. Call: await client.subscribe_realtime_candle('EURUSD_otc', 60)",
+        "2. Wait: await asyncio.sleep(1)",
+        "3. Access: client.api.wss_message",
+        "Returns: dict with 'asset', 'period', 'history'"
+      ],
+      "to_get_profile": [
+        "1. Call: await client.get_balance() (populates profile)",
+        "2. Access: client.api.profile.demo_balance",
+        "3. Or: client.api.profile.currency_code",
+        "Returns: attribute values from Profile object"
+      ]
+    }
+  }
+}

@@ -356,6 +356,138 @@ async function initApp() {
 }
 
 // =============================================================================
+// 💰 BALANCE MANAGEMENT — Frontend functions
+// =============================================================================
+
+function toggleBalanceModal() {
+    const modal = document.getElementById('balanceModal');
+    if (modal.style.display === 'none' || !modal.style.display) {
+        modal.style.display = 'flex';
+        refreshBalance();
+    } else {
+        modal.style.display = 'none';
+    }
+}
+
+function closeBalanceModal() {
+    document.getElementById('balanceModal').style.display = 'none';
+}
+
+async function refreshBalance() {
+    const status = document.getElementById('balanceStatus');
+    status.textContent = 'Loading...';
+    status.style.color = '#64748b';
+
+    try {
+        // EEL calls return promises - must await them
+        const balances = await eel.get_account_balances_sync()();
+
+        console.log('Balance response:', balances, 'type:', typeof balances);
+
+        if (!balances || typeof balances !== 'object') {
+            throw new Error('Invalid balance response: ' + JSON.stringify(balances));
+        }
+
+        // Safe extraction with defaults
+        const real = parseFloat(balances.real || 0) || 0;
+        const demo = parseFloat(balances.demo || 0) || 0;
+        const mode = balances.current_mode || 'UNKNOWN';
+        const timestamp = balances.timestamp || Date.now() / 1000;
+
+        // Update display
+        document.getElementById('realBalance').textContent = '$' + real.toFixed(2);
+        document.getElementById('demoBalance').textContent = '$' + demo.toFixed(2);
+        document.getElementById('balanceMode').textContent = mode;
+        document.getElementById('balanceDisplay').textContent =
+            mode === 'REAL'
+                ? '$' + real.toFixed(2)
+                : '$' + demo.toFixed(2);
+
+        // Update button states
+        const realBtn = document.getElementById('switchRealBtn');
+        const demoBtn = document.getElementById('switchDemoBtn');
+        realBtn.classList.toggle('active', mode === 'REAL');
+        demoBtn.classList.toggle('active', mode === 'PRACTICE');
+
+        // Update mode badge style
+        const badge = document.querySelector('.mode-badge');
+        if (mode === 'REAL') {
+            badge.style.background = 'rgba(239, 68, 68, 0.15)';
+            badge.style.color = '#ef4444';
+            badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+        } else {
+            badge.style.background = 'rgba(251, 191, 36, 0.15)';
+            badge.style.color = '#fbbf24';
+            badge.style.borderColor = 'rgba(251, 191, 36, 0.4)';
+        }
+
+        // Update timestamp
+        const date = new Date(timestamp * 1000);
+        const timeStr = date.toLocaleTimeString();
+        document.getElementById('balanceUpdated').textContent = 'Updated: ' + timeStr;
+
+        status.textContent = '✅ Balance updated';
+        status.style.color = '#22c55e';
+        setTimeout(() => { status.textContent = ''; }, 2000);
+
+    } catch (err) {
+        console.error('Balance fetch error:', err);
+        status.textContent = '❌ ' + err.message;
+        status.style.color = '#ef4444';
+    }
+}
+
+async function switchToReal() {
+    const status = document.getElementById('balanceStatus');
+    status.textContent = 'Switching to REAL...';
+    status.style.color = '#64748b';
+
+    try {
+        const result = await eel.switch_account_mode("REAL")();
+
+        if (result.success) {
+            status.textContent = '✅ Switched to REAL account';
+            status.style.color = '#22c55e';
+            await refreshBalance();
+            toast('💰 Switched to REAL account', 'success');
+        } else {
+            status.textContent = '❌ ' + result.error;
+            status.style.color = '#ef4444';
+            toast('⚠️ Failed to switch: ' + result.error, 'error');
+        }
+    } catch (err) {
+        console.error('Switch error:', err);
+        status.textContent = '❌ Switch failed';
+        status.style.color = '#ef4444';
+    }
+}
+
+async function switchToDemo() {
+    const status = document.getElementById('balanceStatus');
+    status.textContent = 'Switching to PRACTICE...';
+    status.style.color = '#64748b';
+
+    try {
+        const result = await eel.switch_account_mode("PRACTICE")();
+
+        if (result.success) {
+            status.textContent = '✅ Switched to PRACTICE account';
+            status.style.color = '#22c55e';
+            await refreshBalance();
+            toast('💰 Switched to PRACTICE account', 'success');
+        } else {
+            status.textContent = '❌ ' + result.error;
+            status.style.color = '#ef4444';
+            toast('⚠️ Failed to switch: ' + result.error, 'error');
+        }
+    } catch (err) {
+        console.error('Switch error:', err);
+        status.textContent = '❌ Switch failed';
+        status.style.color = '#ef4444';
+    }
+}
+
+// =============================================================================
 // ✅ GLOBAL EXPORTS
 // =============================================================================
 window.toast = toast;
@@ -372,6 +504,12 @@ window.renderTimeframesModal = renderTimeframesModal;
 window.closeModal = closeModal;
 window.openEditor = openEditor;
 window.APP_CONFIG = APP_CONFIG;
+// 💰 Balance functions
+window.toggleBalanceModal = toggleBalanceModal;
+window.closeBalanceModal = closeBalanceModal;
+window.refreshBalance = refreshBalance;
+window.switchToReal = switchToReal;
+window.switchToDemo = switchToDemo;
 
 // ✅ Start initialization after DOM is ready
 if (document.readyState === 'loading') {

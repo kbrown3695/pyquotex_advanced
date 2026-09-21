@@ -22,10 +22,13 @@ const CONFIG = {
     STORAGE_VERSION: 1,
     STORAGE_KEY: 'qx_data_v1',
     MAX_STORAGE_SIZE: 4 * 1024 * 1024,  // 4MB limit
-    
+
     // Connection & Eel
     EEL_TIMEOUT_MS: 5000,               // Timeout for Eel calls before fallback
-    CONNECTION_TIMEOUT_MS: 10000,       // Time without data before marking connection weak
+    // ✅ FIXED: Increased from 10s to 15s to account for 300ms backend rate limit
+    // Backend sends updates every 300ms max, so in 15s there should be ~50 update attempts
+    // Even if 80% fail, we'd still get ~10 updates, very safe margin
+    CONNECTION_TIMEOUT_MS: 15000,       // Time without data before marking connection weak
     CONNECTION_CHECK_INTERVAL_MS: 5000, // How often to check connection health
     
     // Chart & Data
@@ -321,6 +324,11 @@ function updateCountdown(candle) {
 
 // ✅ Animation loop: updates price + countdown together (no jitter)
 function animateCountdown(currentPrice) {
+    // ✅ FIXED: Pause countdown during disconnection to avoid frozen appearance
+    if (!AppState.connectionHealthy) {
+        return;
+    }
+
     // ✅ Safety check: stop if chart/label removed during animation
     if (!window.candleSeries || !countdownLabel) {
         if (countdownAnimationId) {
@@ -329,38 +337,38 @@ function animateCountdown(currentPrice) {
         }
         return;
     }
-    
+
     const label = ensureCountdownLabel();
     if (!label || AppState.currentCandles.length === 0) {
         if (countdownAnimationId) clearTimeout(countdownAnimationId);
         countdownAnimationId = null;
         return;
     }
-    
+
     const now = (Date.now() / 1000) + AppState.serverTimeOffset;
     let remaining = Math.max(0, Math.floor(label.candleEndTime - now));
     const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
     const secs = (remaining % 60).toString().padStart(2, '0');
-    
+
     // ✅ Update price and countdown together in single applyOptions call
     try {
         // ✅ Check label is still valid before updating
         if (typeof label.applyOptions === 'function') {
-            label.applyOptions({ 
-                price: currentPrice, 
-                title: `⏱ ${mins}:${secs}` 
+            label.applyOptions({
+                price: currentPrice,
+                title: `⏱ ${mins}:${secs}`
             });
         }
-    } catch(e) { 
+    } catch(e) {
         console.warn('⚠️ Countdown update failed:', e);
         // ✅ Attempt recovery: clear and recreate label
         countdownLabel = null;
         ensureCountdownLabel();
         countdownAnimationId = null;
-        return; 
+        return;
     }
-    
-    if (remaining > 0) {
+
+    if (remaining > 0 && AppState.connectionHealthy) {
         // ✅ Update every second only (not every tick) to prevent visual jitter
         countdownAnimationId = setTimeout(() => {
             // ✅ Double-check chart still exists before recursing
@@ -373,6 +381,24 @@ function animateCountdown(currentPrice) {
         }, CONFIG.COUNTDOWN_UPDATE_MS);
     } else {
         countdownAnimationId = null;
+    }
+}
+
+// ✅ FIXED: Stop countdown animation during disconnection
+function stopCountdownAnimation() {
+    if (countdownAnimationId) {
+        clearTimeout(countdownAnimationId);
+        countdownAnimationId = null;
+    }
+    try {
+        const label = ensureCountdownLabel();
+        if (label && typeof label.applyOptions === 'function') {
+            label.applyOptions({
+                title: '⏱ OFFLINE'
+            });
+        }
+    } catch(e) {
+        console.warn('⚠️ Failed to update countdown to OFFLINE:', e);
     }
 }
 
@@ -471,12 +497,22 @@ function applyIncrementalUpdate(lastCandle, data) {
     }
 }
 
+let updateChartCallCount = 0;
+
 function updateChart(data) {
     try {
+        updateChartCallCount++;
         AppState.lastDataTime = Date.now();
         AppState.connectionHealthy = true;
 
+        // ✅ Log every 10 updates to see if data is flowing
+        if (updateChartCallCount % 10 === 0) {
+            const price = data?.candles?.[data.candles.length - 1]?.close || 0;
+            console.log(`✅ FRONTEND updateChart #${updateChartCallCount}: mode=${data?.mode} asset=${data?.asset} price=${price}`);
+        }
+
         if (!data || !data.candles || !Array.isArray(data.candles)) {
+            console.warn('⚠️ Invalid data structure:', data);
             debugLog('📥 Invalid data structure');
             return;
         }
@@ -632,21 +668,30 @@ function startConnectionMonitor() {
     if (connectionCheckInterval) {
         clearInterval(connectionCheckInterval);
     }
-    
+
     connectionCheckInterval = setInterval(() => {
         const timeSinceData = Date.now() - AppState.lastDataTime;
-        
+
         if (timeSinceData > CONFIG.CONNECTION_TIMEOUT_MS) {
             if (AppState.connectionHealthy) {
                 AppState.connectionHealthy = false;
                 debugLog(`📡 Connection timeout after ${timeSinceData}ms`);
-                
+
+                // ✅ FIXED: Keep toast visible longer and show persistent message
                 if (typeof window.toast === 'function') {
-                    window.toast('Connection lost, reconnecting...', 'info');
+                    window.toast('🔌 Connection lost - reconnecting...', 'warning');
                 }
-                
-                // ✅ Attempt reconnection via Eel
-                if (typeof eel?.change_asset === 'function') {
+
+                // ✅ FIXED: Pause countdown timer during disconnection
+                if (typeof stopCountdownAnimation === 'function') {
+                    stopCountdownAnimation();
+                }
+
+                // ✅ FIXED: Call the new reconnect endpoint instead of change_asset
+                if (typeof eel?.reconnect_realtime === 'function') {
+                    safeEelCall(eel.reconnect_realtime);
+                } else if (typeof eel?.change_asset === 'function') {
+                    // Fallback for older versions
                     safeEelCall(eel.change_asset, AppState.currentAsset);
                 }
             }
@@ -655,8 +700,12 @@ function startConnectionMonitor() {
             if (!AppState.connectionHealthy) {
                 AppState.connectionHealthy = true;
                 debugLog('📡 Connection restored');
+
+                // ✅ FIXED: Force full redraw when connection restored
+                AppState.needsFullRedraw = true;
+
                 if (typeof window.toast === 'function') {
-                    window.toast('Connection restored', 'success');
+                    window.toast('✅ Connection restored', 'success');
                 }
             }
         }
@@ -797,6 +846,7 @@ window.debounceLogic = debounceLogic;
 window.safeEelCall = safeEelCall;
 window.updateCountdown = updateCountdown;
 window.animateCountdown = animateCountdown;
+window.stopCountdownAnimation = stopCountdownAnimation;  // ✅ FIXED: Export for connection monitor
 window.startConnectionMonitor = startConnectionMonitor;
 window.cleanupAll = cleanupAll;
 window.debugLog = debugLog;

@@ -104,6 +104,49 @@ except Exception as e:
     print(f"⚠️ BackgroundCandleAggregator import failed: {type(e).__name__}: {e}")
     BackgroundCandleAggregator = None
 
+# ✅ Phase H: Constraint Tracking & Automation
+try:
+    from ml.trading.account_constraint_tracker import AccountConstraintTracker
+    print("[OK] ✅ AccountConstraintTracker imported successfully")
+except ImportError as e:
+    print(f"⚠️ AccountConstraintTracker import failed: {e}")
+    AccountConstraintTracker = None
+
+try:
+    from ml.serving.websocket_health_monitor import WebSocketHealthMonitor
+    print("[OK] ✅ WebSocketHealthMonitor imported successfully")
+except ImportError as e:
+    print(f"⚠️ WebSocketHealthMonitor import failed: {e}")
+    WebSocketHealthMonitor = None
+
+try:
+    from ml.trading.automated_trader import AutomatedTrader
+    print("[OK] ✅ AutomatedTrader imported successfully")
+except ImportError as e:
+    print(f"⚠️ AutomatedTrader import failed: {e}")
+    AutomatedTrader = None
+
+try:
+    from ml.serving.auto_trading_manager import AutoTradingManager
+    print("[OK] ✅ AutoTradingManager imported successfully")
+except ImportError as e:
+    print(f"⚠️ AutoTradingManager import failed: {e}")
+    AutoTradingManager = None
+
+try:
+    from ml.trading.order_executor import OrderExecutor
+    print("[OK] ✅ OrderExecutor imported successfully")
+except ImportError as e:
+    print(f"⚠️ OrderExecutor import failed: {e}")
+    OrderExecutor = None
+
+try:
+    from ml.trading.position_tracker import PositionTracker
+    print("[OK] ✅ PositionTracker imported successfully")
+except ImportError as e:
+    print(f"⚠️ PositionTracker import failed: {e}")
+    PositionTracker = None
+
 # ======================
 # ⚙️ CONFIG & LOGGING
 # ======================
@@ -213,6 +256,68 @@ except Exception as e:
     import traceback
     traceback.print_exc()
     SIGNAL_MANAGER = None
+
+# ✅ Phase H: Initialize Constraint Tracking & Health Monitoring
+CONSTRAINT_TRACKER = None
+HEALTH_MONITOR = None
+ORDER_EXECUTOR = None
+POSITION_TRACKER = None
+AUTOMATED_TRADER = None
+
+if AccountConstraintTracker:
+    try:
+        CONSTRAINT_TRACKER = AccountConstraintTracker()
+        print(f"✅ AccountConstraintTracker initialized")
+    except Exception as e:
+        print(f"⚠️ AccountConstraintTracker init failed: {e}")
+
+if WebSocketHealthMonitor:
+    try:
+        HEALTH_MONITOR = WebSocketHealthMonitor()
+        print(f"✅ WebSocketHealthMonitor initialized")
+    except Exception as e:
+        print(f"⚠️ WebSocketHealthMonitor init failed: {e}")
+
+if OrderExecutor:
+    try:
+        ORDER_EXECUTOR = OrderExecutor()
+        print(f"✅ OrderExecutor initialized")
+    except Exception as e:
+        print(f"⚠️ OrderExecutor init failed: {e}")
+
+if PositionTracker:
+    try:
+        POSITION_TRACKER = PositionTracker()
+        print(f"✅ PositionTracker initialized")
+    except Exception as e:
+        print(f"⚠️ PositionTracker init failed: {e}")
+
+if AutomatedTrader and CONSTRAINT_TRACKER and HEALTH_MONITOR:
+    try:
+        AUTOMATED_TRADER = AutomatedTrader(
+            constraint_tracker=CONSTRAINT_TRACKER,
+            health_monitor=HEALTH_MONITOR,
+            order_executor=ORDER_EXECUTOR,
+            position_tracker=POSITION_TRACKER
+        )
+        print(f"✅ AutomatedTrader initialized (demo mode enabled)")
+    except Exception as e:
+        print(f"⚠️ AutomatedTrader init failed: {e}")
+
+# ✅ Phase H: Initialize Auto Trading Manager (loads selected pairs)
+AUTO_TRADING_MANAGER = None
+if AutoTradingManager and AUTOMATED_TRADER and CONSTRAINT_TRACKER and HEALTH_MONITOR:
+    try:
+        AUTO_TRADING_MANAGER = AutoTradingManager(
+            constraint_tracker=CONSTRAINT_TRACKER,
+            health_monitor=HEALTH_MONITOR,
+            automated_trader=AUTOMATED_TRADER,
+            pairs_file="selected_signal_pairs.json"
+        )
+        print(f"✅ AutoTradingManager initialized with selected pairs")
+    except Exception as e:
+        print(f"⚠️ AutoTradingManager init failed: {e}")
+        AUTO_TRADING_MANAGER = None
 
 # ✅ تحسين #5: أوقات محسّنة للاستقرار
 TICK_IDLE_THRESHOLD   = 90   # ✅ Increased from 30s to reduce false reconnects
@@ -594,6 +699,27 @@ async def get_account_balances() -> Dict[str, float]:
         }
 
 
+# ✅ Phase H: Update constraints with latest account data
+async def update_constraints():
+    """Update constraint tracker with latest WebSocket account data."""
+    if not CONSTRAINT_TRACKER or not CLIENT or not CLIENT.api:
+        return
+
+    try:
+        account_balance = getattr(CLIENT.api, 'account_balance', None)
+        profile_data = getattr(CLIENT.api, 'profile', None)
+        account_is_demo = getattr(CLIENT, 'account_is_demo', 1)
+
+        if account_balance:
+            CONSTRAINT_TRACKER.update_from_websocket(
+                account_balance=account_balance,
+                profile_data=profile_data.__dict__ if profile_data else None,
+                account_is_demo=account_is_demo
+            )
+    except Exception as e:
+        log(f"⚠️ Failed to update constraints: {e}", 2)
+
+
 async def hard_ping_loop():
     while True:
         await asyncio.sleep(HARD_PING_INTERVAL)
@@ -602,13 +728,26 @@ async def hard_ping_loop():
                 balances = await get_account_balances()
                 log(f"💓 Hard ping OK — Real: ${balances['real']:.2f} Demo: ${balances['demo']:.2f} ({balances['current_mode']})", 2)
                 update_tick_time()
+
+                # ✅ Phase H: Update constraints and health monitoring
+                await update_constraints()
+
+                # Log constraint status periodically
+                if CONSTRAINT_TRACKER:
+                    status = CONSTRAINT_TRACKER.get_status()
+                    if status.get('constraint_status') != 'OK':
+                        log(f"⚠️  Constraint Alert: {status.get('halt_reason', 'Unknown')}", 1)
         except asyncio.CancelledError:
             break
         except asyncio.TimeoutError:
             log("⚠️ Hard ping timeout — triggering reconnect", 1)
+            if HEALTH_MONITOR:
+                HEALTH_MONITOR.record_disconnection()
             asyncio.create_task(full_reconnect())
         except (ConnectionError, OSError) as e:
             log(f"⚠️ Hard ping connection error: {e}", 1)
+            if HEALTH_MONITOR:
+                HEALTH_MONITOR.record_disconnection()
             asyncio.create_task(full_reconnect())
         except Exception as e:
             log(f"⚠️ Hard ping unexpected error: {type(e).__name__}: {e}", 2)
@@ -1164,6 +1303,12 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
     start_background_task("market_ping", market_activity_ping())
     start_background_task("hard_ping", hard_ping_loop())
     start_background_task("forced_resub", forced_resubscription())
+
+    # Wire Quotex client to OrderExecutor for trade execution
+    global ORDER_EXECUTOR
+    if ORDER_EXECUTOR and CLIENT:
+        ORDER_EXECUTOR.client = CLIENT
+        log("✅ OrderExecutor wired to Quotex client", 1)
 
     # Initialize background candle aggregator for selected pairs
     global BG_AGGREGATOR
@@ -2069,6 +2214,482 @@ def report_trade_outcome(profit: float, components: dict, side: str, entry: floa
 	except Exception as e:
 		log(f"⚠️ Error reporting trade outcome: {e}", 2)
 		return {"success": False, "error": str(e)}
+
+# ======================
+# Phase H: Automated Trading Endpoints
+# ======================
+@eel.expose
+def get_automation_status():
+	"""Get current automation status and selected pairs.
+
+	Returns:
+		Dict with automation state, selected pairs, and real-time metrics
+	"""
+	global AUTO_TRADING_MANAGER, CONSTRAINT_TRACKER, HEALTH_MONITOR
+
+	if not AUTO_TRADING_MANAGER:
+		return {"error": "Auto trading manager not initialized"}
+
+	try:
+		status = AUTO_TRADING_MANAGER.get_automation_status()
+
+		# Add real-time balance
+		balances = asyncio.run_coroutine_threadsafe(
+			get_account_balances(), ASYNC_LOOP
+		).result(timeout=3)
+
+		status['balances'] = balances
+		status['trading_mode'] = "DEMO" if settings.prefer_demo_mode else "LIVE"
+
+		return status
+	except Exception as e:
+		log(f"⚠️ Error getting automation status: {e}", 2)
+		return {"error": str(e)}
+
+@eel.expose
+def enable_automation():
+	"""Enable automated trading for selected pairs.
+
+	Returns:
+		Dict with success status
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return {"success": False, "error": "Auto trading manager not initialized"}
+
+	try:
+		success = AUTO_TRADING_MANAGER.enable_automation()
+		if success:
+			log("🚀 AUTOMATION ENABLED for selected pairs", 1)
+			return {"success": True, "message": "Automation enabled"}
+		else:
+			return {"success": False, "error": "Failed to enable automation"}
+	except Exception as e:
+		log(f"❌ Error enabling automation: {e}", 1)
+		return {"success": False, "error": str(e)}
+
+@eel.expose
+def disable_automation():
+	"""Disable automated trading.
+
+	Returns:
+		Dict with success status
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return {"success": False, "error": "Auto trading manager not initialized"}
+
+	try:
+		AUTO_TRADING_MANAGER.disable_automation()
+		log("⏹️  AUTOMATION DISABLED", 1)
+		return {"success": True, "message": "Automation disabled"}
+	except Exception as e:
+		log(f"❌ Error disabling automation: {e}", 1)
+		return {"success": False, "error": str(e)}
+
+@eel.expose
+def get_selected_pairs():
+	"""Get list of selected pairs for automated trading.
+
+	Returns:
+		List of pair display names
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return []
+
+	return AUTO_TRADING_MANAGER.selected_pairs
+
+@eel.expose
+def get_pair_statuses():
+	"""Get real-time status of each selected pair.
+
+	Returns:
+		Dict mapping pair names to status info
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return {}
+
+	return AUTO_TRADING_MANAGER.get_pair_statuses()
+
+@eel.expose
+def get_real_time_balance():
+	"""Get real-time account balance (updated every 60s from hard ping).
+
+	Returns:
+		Dict with current balances
+	"""
+	global CONSTRAINT_TRACKER
+
+	try:
+		# Get from constraint tracker (already updated by hard ping every 60s)
+		if CONSTRAINT_TRACKER and CONSTRAINT_TRACKER.current_constraints:
+			c = CONSTRAINT_TRACKER.current_constraints
+			return {
+				'real_balance': c.live_balance,
+				'demo_balance': c.demo_balance,
+				'day_limit': c.day_limit,
+				'day_balance': c.day_balance,
+				'minimum_amount': c.minimum_amount,
+				'account_mode': c.account_mode,
+				'timestamp': c.timestamp
+			}
+		else:
+			# Fallback: get from async call
+			balances = asyncio.run_coroutine_threadsafe(
+				get_account_balances(), ASYNC_LOOP
+			).result(timeout=2)
+			return balances
+	except Exception as e:
+		log(f"⚠️ Error getting real-time balance: {e}", 2)
+		return {}
+
+# ======================
+# Phase H: Individual Pair Activation/Deactivation
+# ======================
+@eel.expose
+def activate_pair(pair_name: str):
+	"""Activate a specific pair for trading.
+
+	Args:
+		pair_name: Display name (e.g., "CHF/JPY")
+
+	Returns:
+		Dict with success status
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return {"success": False, "error": "Auto trading manager not initialized"}
+
+	try:
+		success = AUTO_TRADING_MANAGER.activate_pair(pair_name)
+		if success:
+			log(f"✅ PAIR ACTIVATED: {pair_name}", 1)
+			return {"success": True, "message": f"Activated {pair_name}"}
+		else:
+			return {"success": False, "error": f"Pair not found: {pair_name}"}
+	except Exception as e:
+		log(f"❌ Error activating pair: {e}", 1)
+		return {"success": False, "error": str(e)}
+
+@eel.expose
+def deactivate_pair(pair_name: str):
+	"""Deactivate a specific pair (won't execute trades).
+
+	Args:
+		pair_name: Display name (e.g., "CHF/JPY")
+
+	Returns:
+		Dict with success status
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return {"success": False, "error": "Auto trading manager not initialized"}
+
+	try:
+		success = AUTO_TRADING_MANAGER.deactivate_pair(pair_name)
+		if success:
+			log(f"⏸️  PAIR DEACTIVATED: {pair_name}", 1)
+			return {"success": True, "message": f"Deactivated {pair_name}"}
+		else:
+			return {"success": False, "error": f"Pair not found: {pair_name}"}
+	except Exception as e:
+		log(f"❌ Error deactivating pair: {e}", 1)
+		return {"success": False, "error": str(e)}
+
+@eel.expose
+def activate_all_pairs():
+	"""Activate all selected pairs.
+
+	Returns:
+		Dict with count of activated pairs
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return {"success": False, "error": "Auto trading manager not initialized"}
+
+	try:
+		count = AUTO_TRADING_MANAGER.activate_all_pairs()
+		log(f"✅ Activated all {count} pairs", 1)
+		return {"success": True, "activated_count": count}
+	except Exception as e:
+		log(f"❌ Error activating all pairs: {e}", 1)
+		return {"success": False, "error": str(e)}
+
+@eel.expose
+def deactivate_all_pairs():
+	"""Deactivate all selected pairs.
+
+	Returns:
+		Dict with count of deactivated pairs
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return {"success": False, "error": "Auto trading manager not initialized"}
+
+	try:
+		count = AUTO_TRADING_MANAGER.deactivate_all_pairs()
+		log(f"⏸️  Deactivated all {count} pairs", 1)
+		return {"success": True, "deactivated_count": count}
+	except Exception as e:
+		log(f"❌ Error deactivating all pairs: {e}", 1)
+		return {"success": False, "error": str(e)}
+
+@eel.expose
+def get_active_pairs():
+	"""Get list of currently active pairs.
+
+	Returns:
+		List of active pair names
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return []
+
+	return AUTO_TRADING_MANAGER.get_active_pairs()
+
+@eel.expose
+def get_inactive_pairs():
+	"""Get list of currently inactive (deactivated) pairs.
+
+	Returns:
+		List of inactive pair names
+	"""
+	global AUTO_TRADING_MANAGER
+
+	if not AUTO_TRADING_MANAGER:
+		return []
+
+	return AUTO_TRADING_MANAGER.get_inactive_pairs()
+
+# ======================
+# Phase H: Order Execution & Position Tracking
+# ======================
+
+@eel.expose
+def get_open_positions():
+	"""Get all currently open trading positions.
+
+	Returns:
+		Dict with position details by asset
+	"""
+	global POSITION_TRACKER
+
+	if not POSITION_TRACKER:
+		return {}
+
+	return POSITION_TRACKER.get_position_summary_by_asset()
+
+@eel.expose
+def get_recent_trades(limit=20):
+	"""Get recent closed trades.
+
+	Args:
+		limit: Number of recent trades to return
+
+	Returns:
+		List of recent trade records with P&L
+	"""
+	global POSITION_TRACKER
+
+	if not POSITION_TRACKER:
+		return []
+
+	return POSITION_TRACKER.get_recent_trades(limit)
+
+@eel.expose
+def get_position_statistics():
+	"""Get position and trade statistics.
+
+	Returns:
+		Dict with:
+		- open_positions: count of open trades
+		- total_trades: total executed trades
+		- winning_trades: count of winners
+		- losing_trades: count of losers
+		- win_rate_percent: win rate %
+		- total_profit_loss_usd: total P&L
+		- avg_profit_loss_per_trade: average P&L per trade
+	"""
+	global POSITION_TRACKER
+
+	if not POSITION_TRACKER:
+		return {
+			'open_positions': 0,
+			'total_trades': 0,
+			'winning_trades': 0,
+			'losing_trades': 0,
+			'win_rate_percent': 0,
+			'total_profit_loss_usd': 0,
+			'avg_profit_loss_per_trade': 0
+		}
+
+	return POSITION_TRACKER.get_statistics()
+
+@eel.expose
+def get_order_execution_stats():
+	"""Get order execution statistics.
+
+	Returns:
+		Dict with:
+		- orders_placed: total orders sent
+		- orders_executed: successful orders
+		- orders_failed: failed orders
+		- execution_rate_percent: success rate
+		- total_traded_usd: total USD traded
+		- avg_order_size: average order size
+	"""
+	global ORDER_EXECUTOR
+
+	if not ORDER_EXECUTOR:
+		return {
+			'orders_placed': 0,
+			'orders_executed': 0,
+			'orders_failed': 0,
+			'execution_rate_percent': 0,
+			'total_traded_usd': 0,
+			'avg_order_size': 0
+		}
+
+	return ORDER_EXECUTOR.get_execution_stats()
+
+@eel.expose
+def get_recent_orders(limit=10):
+	"""Get recent order execution history.
+
+	Args:
+		limit: Number of recent orders to return
+
+	Returns:
+		List of recent order records
+	"""
+	global ORDER_EXECUTOR
+
+	if not ORDER_EXECUTOR:
+		return []
+
+	return ORDER_EXECUTOR.get_recent_orders(limit)
+
+@eel.expose
+def close_position(position_id, asset, exit_price=0.0, exit_reason=""):
+	"""Close an open trading position.
+
+	Args:
+		position_id: Position identifier
+		asset: Asset symbol
+		exit_price: Exit price (optional)
+		exit_reason: Reason for closing (e.g., "manual_close", "stop_loss")
+
+	Returns:
+		Dict with {success: bool, message: str, pnl_pct: float, pnl_usd: float}
+	"""
+	global POSITION_TRACKER
+
+	if not POSITION_TRACKER:
+		return {
+			'success': False,
+			'message': 'Position tracker not available'
+		}
+
+	try:
+		position = POSITION_TRACKER.close_position(
+			position_id=position_id,
+			asset=asset,
+			exit_price=exit_price,
+			exit_reason=exit_reason
+		)
+
+		if position:
+			return {
+				'success': True,
+				'message': f'Position closed: {exit_reason}',
+				'pnl_pct': position.profit_loss_pct,
+				'pnl_usd': position.profit_loss_usd,
+				'status': position.status
+			}
+		else:
+			return {
+				'success': False,
+				'message': f'Position {position_id} not found'
+			}
+
+	except Exception as e:
+		return {
+			'success': False,
+			'message': f'Error closing position: {str(e)}'
+		}
+
+@eel.expose
+def export_position_history(filepath="position_history.json"):
+	"""Export complete position history to JSON.
+
+	Args:
+		filepath: Output file path
+
+	Returns:
+		Dict with {success: bool, message: str, filepath: str}
+	"""
+	global POSITION_TRACKER
+
+	if not POSITION_TRACKER:
+		return {
+			'success': False,
+			'message': 'Position tracker not available'
+		}
+
+	try:
+		POSITION_TRACKER.export_positions_log(filepath)
+		return {
+			'success': True,
+			'message': 'Position history exported',
+			'filepath': filepath
+		}
+	except Exception as e:
+		return {
+			'success': False,
+			'message': f'Export failed: {str(e)}'
+		}
+
+@eel.expose
+def export_order_history(filepath="order_history.json"):
+	"""Export complete order execution history to JSON.
+
+	Args:
+		filepath: Output file path
+
+	Returns:
+		Dict with {success: bool, message: str, filepath: str}
+	"""
+	global ORDER_EXECUTOR
+
+	if not ORDER_EXECUTOR:
+		return {
+			'success': False,
+			'message': 'Order executor not available'
+		}
+
+	try:
+		ORDER_EXECUTOR.export_order_log(filepath)
+		return {
+			'success': True,
+			'message': 'Order history exported',
+			'filepath': filepath
+		}
+	except Exception as e:
+		return {
+			'success': False,
+			'message': f'Export failed: {str(e)}'
+		}
 
 # ======================
 # Main Entry - FIXED with Type Safety

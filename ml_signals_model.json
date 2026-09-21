@@ -1,11 +1,11 @@
 {
-  "timestamp": 1789638315.09836,
-  "training_date": "2026-09-17 12:45:15",
+  "timestamp": 1789986634.1856165,
+  "training_date": "2026-09-21 13:30:34",
   "result": {
     "status": "trained",
     "accuracy": null,
     "samples": 199,
-    "features": 13,
+    "features": 25,
     "feature_importance": {},
     "models_trained": [
       "ensemble",
@@ -21,7 +21,8 @@
       "hmm_regime",
       "rl_agent",
       "lstm",
-      "transformer"
+      "transformer",
+      "reversal_predictor"
     ]
   },
   "model_status": {
@@ -38,11 +39,12 @@
     "hmm_regime": "\u2705 trained",
     "rl_agent": "\u2705 trained",
     "lstm": "\u2705 trained",
-    "transformer": "\u2705 trained"
+    "transformer": "\u2705 trained",
+    "reversal_predictor": "\u2705 trained"
   },
   "summary": {
-    "total_models": 14,
-    "trained": 14,
+    "total_models": 15,
+    "trained": 15,
     "failed": 0
   }
 }

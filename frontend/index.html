@@ -46,6 +46,11 @@
         </div>
         <div id="currentAsset">AUD/CAD (OTC)</div>
         <div id="currentTimeframe" class="btn active">1m</div>
+        <!-- 💰 Balance Display -->
+        <div class="btn" id="balanceBtn" onclick="toggleBalanceModal()" title="View account balance and switch mode">
+            <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/><path d="M12 1v22M4.22 4.22l15.56 15.56M19.78 4.22L4.22 19.78"/></svg>
+            <span id="balanceDisplay">--</span>
+        </div>
         <div class="btn" id="settingsBtn">
             <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </div>
@@ -154,6 +159,52 @@
             </div>
             <div class="modal-search"><input type="text" id="pairSearch" class="modal-search-input" placeholder="Search pairs..." autocomplete="off"></div>
             <div class="modal-content" id="pairSelectorContent"></div>
+        </div>
+    </div>
+
+    <!-- 💰 Balance Modal -->
+    <div id="balanceModal" class="modal-overlay">
+        <div class="modal-card" style="width: 380px;">
+            <div class="modal-header">
+                <div class="modal-title">💰 Account Balance</div>
+                <div class="modal-close" onclick="closeBalanceModal()">&#10005;</div>
+            </div>
+            <div class="modal-content">
+                <div class="balance-container">
+                    <!-- Mode Indicator -->
+                    <div class="balance-mode">
+                        <label>Current Mode:</label>
+                        <span id="balanceMode" class="mode-badge">PRACTICE</span>
+                    </div>
+
+                    <!-- Balances Display -->
+                    <div class="balance-row">
+                        <div class="balance-item">
+                            <span class="balance-label">Real Account</span>
+                            <span id="realBalance" class="balance-value">$--</span>
+                        </div>
+                        <div class="balance-item">
+                            <span class="balance-label">Demo Account</span>
+                            <span id="demoBalance" class="balance-value">$--</span>
+                        </div>
+                    </div>
+
+                    <!-- Last Updated -->
+                    <div class="balance-updated">
+                        <span id="balanceUpdated">Last updated: --</span>
+                        <button class="balance-refresh" onclick="refreshBalance()" title="Refresh balance">🔄</button>
+                    </div>
+
+                    <!-- Switch Buttons -->
+                    <div class="balance-actions">
+                        <button class="btn-switch btn-real" id="switchRealBtn" onclick="switchToReal()">Switch to REAL</button>
+                        <button class="btn-switch btn-demo active" id="switchDemoBtn" onclick="switchToDemo()">Switch to DEMO</button>
+                    </div>
+
+                    <!-- Status Message -->
+                    <div class="balance-status" id="balanceStatus"></div>
+                </div>
+            </div>
         </div>
     </div>
 

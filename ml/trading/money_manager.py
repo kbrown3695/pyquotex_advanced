@@ -24,7 +24,7 @@ class MoneyManagementConfig:
     max_consecutive_losses: int = 5  # Reduce sizing after N losses
     kelly_fraction: float = 1.0  # 1.0 = full Kelly, 0.5 = half Kelly (safer)
 
-    min_confidence_to_trade: float = 0.55  # Don't trade signals below this
+    min_confidence_to_trade: float = 0.10  # Don't trade signals below this
 
 
 @dataclass
