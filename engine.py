@@ -721,6 +721,9 @@ async def update_constraints():
 
 
 async def hard_ping_loop():
+    # Wait longer on first iteration to allow WebSocket to populate balance naturally
+    await asyncio.sleep(15)
+
     while True:
         await asyncio.sleep(HARD_PING_INTERVAL)
         try:
@@ -729,7 +732,7 @@ async def hard_ping_loop():
                 log(f"💓 Hard ping OK — Real: ${balances['real']:.2f} Demo: ${balances['demo']:.2f} ({balances['current_mode']})", 2)
                 update_tick_time()
 
-                # ✅ Phase H: Update constraints and health monitoring
+                # ✅ Phase H: Update constraints and health monitoring with real balance
                 await update_constraints()
 
                 # Log constraint status periodically
@@ -1290,14 +1293,6 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
     except Exception as e:
         log(f"❌ Failed to switch to PRACTICE account: {e}", 1)
         return False, f"Account switch failed: {e}"
-
-    # Explicitly fetch balance after account switch to initialize account_balance dict
-    try:
-        await asyncio.sleep(0.5)  # Brief wait for WebSocket update
-        _ = await asyncio.wait_for(CLIENT.get_balance(), timeout=2.0)
-        log("✅ Demo balance fetched and initialized", 1)
-    except Exception as e:
-        log(f"⚠️ Failed to fetch initial balance (non-fatal): {e}", 1)
 
     try:
         await CLIENT.get_all_assets()
