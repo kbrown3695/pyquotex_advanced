@@ -51,6 +51,10 @@
             <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/><path d="M12 1v22M4.22 4.22l15.56 15.56M19.78 4.22L4.22 19.78"/></svg>
             <span id="balanceDisplay">--</span>
         </div>
+        <div class="btn" id="tradingBtn" onclick="openTradingModal()" title="Open live trading execution modal (Alt+T)">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8m3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5m-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11m3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
+            🚀 Trading
+        </div>
         <div class="btn" id="settingsBtn">
             <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </div>
@@ -327,6 +331,153 @@
         <div class="editor-status"><div id="editorStatus">Ready</div><div id="editorInfo">JavaScript</div></div>
     </div>
 
+    <!-- 🔹 Trading Execution Modal - Real-time Trade Monitoring -->
+    <div id="tradingExecutionModal" class="modal hidden">
+        <div class="modal-content trading-modal">
+            <div class="modal-header">
+                <h2>🚀 Live Trade Execution</h2>
+                <button class="close-btn" onclick="closeTradingModal()">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Real-time Status -->
+                <div class="execution-status">
+                    <div class="status-item">
+                        <span class="label">🤖 Automation</span>
+                        <span id="automationStatus" class="status-badge off">DISABLED</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">💰 Balance</span>
+                        <span id="currentBalance" class="status-value">$0.00</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">📊 Positions</span>
+                        <span id="openPositions" class="status-value">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">📈 Win Rate</span>
+                        <span id="winRate" class="status-value">0.0%</span>
+                    </div>
+                </div>
+
+                <!-- Live Execution Feed -->
+                <div class="execution-feed">
+                    <h3>📡 Execution Feed</h3>
+                    <div id="executionLog" class="execution-log">
+                        <div class="log-entry info">
+                            <span class="time">--:--:--</span>
+                            <span class="event">✅ Modal loaded</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Execution Pipeline -->
+                <div class="execution-pipeline">
+                    <h3>⚙️ Execution Pipeline</h3>
+                    <div class="pipeline-stages">
+                        <div class="stage">
+                            <div class="stage-icon">1️⃣</div>
+                            <div class="stage-content">
+                                <div class="stage-title">ML Signal</div>
+                                <div class="stage-desc">15+ models generating signals</div>
+                            </div>
+                        </div>
+                        <div class="arrow">→</div>
+
+                        <div class="stage">
+                            <div class="stage-icon">2️⃣</div>
+                            <div class="stage-content">
+                                <div class="stage-title">AutoTradingManager</div>
+                                <div class="stage-desc">Pair validation & activation</div>
+                            </div>
+                        </div>
+                        <div class="arrow">→</div>
+
+                        <div class="stage">
+                            <div class="stage-icon">3️⃣</div>
+                            <div class="stage-content">
+                                <div class="stage-title">7-Stage Validation</div>
+                                <div class="stage-desc">Constraints + Health check</div>
+                            </div>
+                        </div>
+                        <div class="arrow">→</div>
+
+                        <div class="stage">
+                            <div class="stage-icon">4️⃣</div>
+                            <div class="stage-content">
+                                <div class="stage-title">OrderExecutor</div>
+                                <div class="stage-desc">Place order via API</div>
+                            </div>
+                        </div>
+                        <div class="arrow">→</div>
+
+                        <div class="stage">
+                            <div class="stage-icon">5️⃣</div>
+                            <div class="stage-content">
+                                <div class="stage-title">PositionTracker</div>
+                                <div class="stage-desc">Record & monitor P&L</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Statistics -->
+                <div class="trade-stats">
+                    <h3>📊 Trade Statistics</h3>
+                    <div class="stats-grid">
+                        <div class="stat-box">
+                            <div class="stat-label">Total Trades</div>
+                            <div id="totalTrades" class="stat-value">0</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Winning Trades</div>
+                            <div id="winningTrades" class="stat-value">0</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Losing Trades</div>
+                            <div id="losingTrades" class="stat-value">0</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Total P&L</div>
+                            <div id="totalPnL" class="stat-value">$0.00</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Positions -->
+                <div class="active-positions">
+                    <h3>📍 Active Positions</h3>
+                    <div id="positionsList" class="positions-list">
+                        <div class="empty-state">No active positions</div>
+                    </div>
+                </div>
+
+                <!-- Recent Trades -->
+                <div class="recent-trades">
+                    <h3>📈 Recent Trades</h3>
+                    <div id="tradesList" class="trades-list">
+                        <div class="empty-state">No recent trades</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="enableAutomation()">
+                    ▶️ Enable Automation
+                </button>
+                <button class="btn btn-danger" onclick="disableAutomation()">
+                    ⏹️ Disable Automation
+                </button>
+                <button class="btn btn-secondary" onclick="refreshTradingStatus()">
+                    🔄 Refresh
+                </button>
+                <button class="btn btn-secondary" onclick="closeTradingModal()">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 🔹 App Container -->
     <div id="appContainer">
         <div id="chartContainer">
@@ -339,7 +490,528 @@
     <!-- 🔹 External Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
-    
+
+    <!-- 🔹 Trading Execution Modal Styles -->
+    <style>
+    /* Modal visibility */
+    .hidden {
+        display: none !important;
+    }
+
+    /* Trading Execution Modal Container */
+    #tradingExecutionModal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(5, 8, 20, 0.9);
+        backdrop-filter: blur(8px);
+        z-index: 1001;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    #tradingExecutionModal.hidden {
+        display: none !important;
+    }
+
+    .modal-content {
+        background: linear-gradient(180deg, #0f172a 0%, #0a0f1c 100%);
+        border: 1px solid rgba(59, 130, 246, 0.4);
+        border-radius: 8px;
+        box-shadow: 0 0 40px rgba(30, 58, 138, 0.3), 0 10px 40px rgba(0, 0, 0, 0.6);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+        background: rgba(30, 58, 138, 0.15);
+        border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        font-family: 'Cinzel', serif;
+        font-size: 16px;
+        color: #60a5fa;
+        letter-spacing: 1px;
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        color: #60a5fa;
+        font-size: 28px;
+        cursor: pointer;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: all 0.3s;
+    }
+
+    .close-btn:hover {
+        background: rgba(59, 130, 246, 0.2);
+        transform: rotate(90deg);
+    }
+
+    .modal-body {
+        overflow-y: auto;
+        padding: 20px;
+        flex: 1;
+    }
+
+    /* Trading Execution Modal Styles */
+    .trading-modal {
+        max-width: 1200px;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .execution-status {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+        margin-bottom: 20px;
+        color: white;
+    }
+
+    .status-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 5px;
+    }
+
+    .status-badge {
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 12px;
+    }
+
+    .status-badge.on {
+        background: #4ade80;
+        color: white;
+    }
+
+    .status-badge.off {
+        background: #ef4444;
+        color: white;
+    }
+
+    .execution-feed {
+        margin-bottom: 20px;
+    }
+
+    .execution-log {
+        background: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 8px;
+        padding: 15px;
+        max-height: 250px;
+        overflow-y: auto;
+        color: #d1d5db;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+    }
+
+    .log-entry {
+        padding: 8px 0;
+        border-bottom: 1px solid #374151;
+        display: flex;
+        gap: 10px;
+    }
+
+    .log-entry:last-child {
+        border-bottom: none;
+    }
+
+    .log-entry.info {
+        color: #60a5fa;
+    }
+
+    .log-entry.success {
+        color: #4ade80;
+    }
+
+    .log-entry.error {
+        color: #f87171;
+    }
+
+    .log-entry.warning {
+        color: #fbbf24;
+    }
+
+    .time {
+        color: #9ca3af;
+        min-width: 70px;
+    }
+
+    .execution-pipeline {
+        margin-bottom: 20px;
+        background: #f3f4f6;
+        padding: 20px;
+        border-radius: 8px;
+    }
+
+    .pipeline-stages {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        overflow-x: auto;
+        padding: 15px;
+        background: white;
+        border-radius: 5px;
+    }
+
+    .stage {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+        padding: 10px 15px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 8px;
+        color: white;
+        min-width: 200px;
+    }
+
+    .stage-icon {
+        font-size: 20px;
+    }
+
+    .stage-content {
+        flex: 1;
+    }
+
+    .stage-title {
+        font-weight: bold;
+        font-size: 14px;
+    }
+
+    .stage-desc {
+        font-size: 12px;
+        opacity: 0.9;
+    }
+
+    .arrow {
+        font-size: 24px;
+        color: #667eea;
+        flex-shrink: 0;
+    }
+
+    .trade-stats {
+        margin-bottom: 20px;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+    }
+
+    .stat-box {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+    }
+
+    .stat-label {
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+    }
+
+    .stat-value {
+        font-size: 28px;
+        font-weight: bold;
+        color: #667eea;
+    }
+
+    .active-positions,
+    .recent-trades {
+        margin-bottom: 20px;
+    }
+
+    .positions-list,
+    .trades-list {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .position-item,
+    .trade-item {
+        padding: 15px;
+        border-bottom: 1px solid #e5e7eb;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        gap: 15px;
+        align-items: center;
+    }
+
+    .position-item:last-child,
+    .trade-item:last-child {
+        border-bottom: none;
+    }
+
+    .empty-state {
+        padding: 30px;
+        text-align: center;
+        color: #9ca3af;
+    }
+
+    .modal-footer {
+        display: flex;
+        gap: 10px;
+        padding: 20px;
+        border-top: 1px solid #e5e7eb;
+        justify-content: flex-end;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.3s;
+    }
+
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #5568d3;
+    }
+
+    .btn-danger {
+        background: #ef4444;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #dc2626;
+    }
+
+    .btn-secondary {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .btn-secondary:hover {
+        background: #d1d5db;
+    }
+    </style>
+
+    <!-- 🔹 Trading Execution Modal Scripts -->
+    <script>
+    // Trading Execution Modal Functions
+    function openTradingModal() {
+        const modal = document.getElementById('tradingExecutionModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            refreshTradingStatus();
+            startLiveUpdates();
+        }
+    }
+
+    function closeTradingModal() {
+        const modal = document.getElementById('tradingExecutionModal');
+        if (modal) {
+            modal.classList.add('hidden');
+            stopLiveUpdates();
+        }
+    }
+
+    async function enableAutomation() {
+        try {
+            const result = await eel.enable_automation()();
+            if (result.success) {
+                addLogEntry('✅ Automation ENABLED', 'success');
+                updateAutomationStatus(true);
+            } else {
+                addLogEntry('❌ Failed to enable automation: ' + (result.error || 'Unknown error'), 'error');
+            }
+        } catch (error) {
+            addLogEntry('❌ Error enabling automation: ' + error, 'error');
+        }
+    }
+
+    async function disableAutomation() {
+        try {
+            const result = await eel.disable_automation()();
+            if (result.success) {
+                addLogEntry('⏹️ Automation DISABLED', 'warning');
+                updateAutomationStatus(false);
+            } else {
+                addLogEntry('❌ Failed to disable automation', 'error');
+            }
+        } catch (error) {
+            addLogEntry('❌ Error disabling automation: ' + error, 'error');
+        }
+    }
+
+    async function refreshTradingStatus() {
+        try {
+            // Get automation status
+            const status = await eel.get_automation_status()();
+            const automationStatus = status.enabled ? 'ENABLED' : 'DISABLED';
+            const automationStatusEl = document.getElementById('automationStatus');
+            if (automationStatusEl) {
+                automationStatusEl.textContent = automationStatus;
+                automationStatusEl.className = 'status-badge ' + (status.enabled ? 'on' : 'off');
+            }
+
+            // Get balance
+            const balance = await eel.get_real_time_balance()();
+            const currentBalanceEl = document.getElementById('currentBalance');
+            if (currentBalanceEl && balance) {
+                const balanceAmount = balance.account_balance || balance.demo_balance || 0;
+                currentBalanceEl.textContent = '$' + balanceAmount.toFixed(2);
+            }
+
+            // Get position statistics
+            const stats = await eel.get_position_statistics()();
+            if (stats) {
+                const openPosEl = document.getElementById('openPositions');
+                if (openPosEl) openPosEl.textContent = stats.open_positions || 0;
+
+                const totalTradesEl = document.getElementById('totalTrades');
+                if (totalTradesEl) totalTradesEl.textContent = stats.total_trades || 0;
+
+                const winningTradesEl = document.getElementById('winningTrades');
+                if (winningTradesEl) winningTradesEl.textContent = stats.winning_trades || 0;
+
+                const losingTradesEl = document.getElementById('losingTrades');
+                if (losingTradesEl) losingTradesEl.textContent = stats.losing_trades || 0;
+
+                const winRateEl = document.getElementById('winRate');
+                if (winRateEl) winRateEl.textContent = ((stats.win_rate_percent || 0).toFixed(1)) + '%';
+
+                const totalPnLEl = document.getElementById('totalPnL');
+                if (totalPnLEl) totalPnLEl.textContent = '$' + ((stats.total_profit_loss_usd || 0).toFixed(2));
+            }
+
+            // Get recent trades
+            const trades = await eel.get_recent_trades(5)();
+            updateTradesList(trades || []);
+
+            // Get open positions
+            const positions = await eel.get_open_positions()();
+            updatePositionsList(positions || {});
+        } catch (error) {
+            addLogEntry('❌ Error refreshing status: ' + error, 'error');
+        }
+    }
+
+    function updateAutomationStatus(enabled) {
+        const badge = document.getElementById('automationStatus');
+        if (badge) {
+            badge.textContent = enabled ? 'ENABLED' : 'DISABLED';
+            badge.className = 'status-badge ' + (enabled ? 'on' : 'off');
+        }
+    }
+
+    function addLogEntry(message, type = 'info') {
+        const log = document.getElementById('executionLog');
+        if (!log) return;
+
+        const time = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.className = 'log-entry ' + type;
+        entry.innerHTML = `<span class="time">${time}</span><span class="event">${message}</span>`;
+
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function updateTradesList(trades) {
+        const list = document.getElementById('tradesList');
+        if (!list) return;
+
+        if (!trades || trades.length === 0) {
+            list.innerHTML = '<div class="empty-state">No recent trades</div>';
+            return;
+        }
+
+        list.innerHTML = trades.map(trade => `
+            <div class="trade-item">
+                <div><strong>${trade.asset || 'N/A'}</strong> ${trade.side || ''}</div>
+                <div>P&L: <strong>${(trade.pnl_usd || 0) > 0 ? '✅' : '❌'} $${(trade.pnl_usd || 0).toFixed(2)}</strong></div>
+                <div>${(trade.pnl_pct || 0) > 0 ? '+' : ''}${(trade.pnl_pct || 0).toFixed(2)}%</div>
+                <div style="text-align: right; font-size: 12px; color: #9ca3af;">${trade.closed_at ? new Date(trade.closed_at).toLocaleTimeString() : 'N/A'}</div>
+            </div>
+        `).join('');
+    }
+
+    function updatePositionsList(positions) {
+        const list = document.getElementById('positionsList');
+        if (!list) return;
+
+        const posArray = Object.values(positions).flatMap(asset => asset.positions || []);
+
+        if (!posArray || posArray.length === 0) {
+            list.innerHTML = '<div class="empty-state">No active positions</div>';
+            return;
+        }
+
+        list.innerHTML = posArray.map(pos => `
+            <div class="position-item">
+                <div><strong>${pos.id ? pos.id.substring(0, 8) : 'N/A'}</strong></div>
+                <div>${pos.side || 'N/A'}</div>
+                <div>$${(pos.amount || 0).toFixed(2)}</div>
+                <div style="text-align: right; font-size: 12px; color: #9ca3af;">${pos.opened_at ? new Date(pos.opened_at).toLocaleTimeString() : 'N/A'}</div>
+            </div>
+        `).join('');
+    }
+
+    let liveUpdateInterval = null;
+
+    function startLiveUpdates() {
+        liveUpdateInterval = setInterval(refreshTradingStatus, 5000); // Update every 5 seconds
+    }
+
+    function stopLiveUpdates() {
+        if (liveUpdateInterval) {
+            clearInterval(liveUpdateInterval);
+            liveUpdateInterval = null;
+        }
+    }
+
+    // Keyboard shortcut: Alt+T to open trading modal
+    document.addEventListener('keydown', (e) => {
+        if (e.altKey && e.key === 't') {
+            openTradingModal();
+        }
+    });
+    </script>
+
     <!-- 🔹 Project Scripts (Order Matters!) -->
     <script src="datafeed.js"></script>
     <script src="chart.js"></script>
