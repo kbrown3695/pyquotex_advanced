@@ -87,19 +87,26 @@ class AutoTradingManager:
     def load_selected_pairs(self) -> bool:
         """Load selected pairs from JSON file.
 
+        Falls back to default pairs if file doesn't exist or is invalid.
+
         Returns:
-            True if successfully loaded
+            True if successfully loaded from file, False if using defaults
         """
+        # Default pairs fallback
+        DEFAULT_PAIRS = ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "USD/INR (OTC)"]
+
         try:
             if not Path(self.pairs_file).exists():
-                self.logger.warning(f"Pairs file not found: {self.pairs_file}")
+                self.logger.warning(f"Pairs file not found: {self.pairs_file}, using defaults")
+                self.selected_pairs = DEFAULT_PAIRS
                 return False
 
-            with open(self.pairs_file, 'r') as f:
+            with open(self.pairs_file, 'r', encoding='utf-8') as f:
                 self.selected_pairs = json.load(f)
 
-            if not isinstance(self.selected_pairs, list):
-                self.logger.error("Pairs file must contain a JSON list")
+            if not isinstance(self.selected_pairs, list) or not self.selected_pairs:
+                self.logger.warning("Pairs file is invalid or empty, using defaults")
+                self.selected_pairs = DEFAULT_PAIRS
                 return False
 
             self.logger.info(f"✅ Loaded {len(self.selected_pairs)} trading pairs:")
@@ -109,7 +116,8 @@ class AutoTradingManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to load pairs: {e}")
+            self.logger.warning(f"Failed to load pairs ({e}), using {len(DEFAULT_PAIRS)} defaults")
+            self.selected_pairs = DEFAULT_PAIRS
             return False
 
     def register_pairs_with_health_monitor(self, timeframes: List[int] = [60]) -> None:
