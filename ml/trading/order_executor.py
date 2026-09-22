@@ -92,15 +92,17 @@ class OrderExecutor:
         asset: str,
         amount: float,
         expiration_time: int = 300,
-        signal_confidence: float = 0.0
+        signal_confidence: float = 0.0,
+        direction: str = "call"
     ) -> OrderResult:
-        """Execute a BUY order.
+        """Execute a BUY order (CALL direction).
 
         Args:
             asset: Asset to buy (internal name like "CHFJPY")
             amount: Amount to trade in USD
             expiration_time: Expiration in seconds (default 5 min)
             signal_confidence: ML signal confidence (0-1)
+            direction: Order direction - "call" for bullish (default), "put" for bearish
 
         Returns:
             OrderResult with execution details
@@ -116,6 +118,7 @@ class OrderExecutor:
                 message="No Quotex client configured"
             )
 
+        self.orders_placed += 1
         try:
             self.logger.info(
                 f"🔵 PLACING BUY ORDER: {asset} ${amount:.2f} "
@@ -125,23 +128,35 @@ class OrderExecutor:
             # Place order via Quotex API
             result = await asyncio.wait_for(
                 asyncio.create_task(
-                    self._place_buy_order(asset, amount, expiration_time)
+                    self._place_buy_order(asset, amount, expiration_time, direction)
                 ),
                 timeout=10
             )
 
-            if result:
-                self.orders_executed += 1
-                self.total_traded += amount
-                status = OrderStatus.EXECUTED.value
-                message = "Order executed successfully"
-            else:
+            # FIX #1: Properly unpack tuple (success, response)
+            success, response = result
+
+            if not success:
                 self.orders_failed += 1
                 status = OrderStatus.FAILED.value
-                message = "Order rejected by broker"
+                message = str(response) if response else "Unknown broker error"
+                order_id = None
+            else:
+                # FIX #2: Extract actual order ID from broker response
+                if isinstance(response, dict) and response.get("id"):
+                    order_id = str(response.get("id"))
+                    self.orders_executed += 1
+                    self.total_traded += amount
+                    status = OrderStatus.EXECUTED.value
+                    message = "Order executed successfully"
+                else:
+                    self.orders_failed += 1
+                    status = OrderStatus.FAILED.value
+                    message = "Broker response missing order ID"
+                    order_id = None
 
             order_result = OrderResult(
-                order_id=str(result) if result else None,
+                order_id=order_id,
                 asset=asset,
                 side="BUY",
                 amount=amount,
@@ -151,11 +166,10 @@ class OrderExecutor:
                 execution_price=0.0  # Updated when position closes
             )
 
-            self.orders_placed += 1
             self._record_order(order_result)
 
             if status == OrderStatus.EXECUTED.value:
-                self.logger.info(f"✅ BUY ORDER EXECUTED: {asset} ${amount:.2f}")
+                self.logger.info(f"✅ BUY ORDER EXECUTED: {asset} ${amount:.2f} (ID: {order_id})")
             else:
                 self.logger.warning(f"❌ BUY ORDER FAILED: {asset} - {message}")
 
@@ -176,7 +190,7 @@ class OrderExecutor:
 
         except Exception as e:
             self.orders_failed += 1
-            self.logger.error(f"❌ BUY ORDER ERROR: {asset} - {e}")
+            self.logger.error(f"❌ BUY ORDER ERROR: {asset} - {type(e).__name__}: {e}")
             return OrderResult(
                 order_id=None,
                 asset=asset,
@@ -193,7 +207,7 @@ class OrderExecutor:
         amount: float,
         signal_confidence: float = 0.0
     ) -> OrderResult:
-        """Execute a SELL order.
+        """Execute a SELL order (closes open option).
 
         Args:
             asset: Asset to sell (internal name)
@@ -214,9 +228,10 @@ class OrderExecutor:
                 message="No Quotex client configured"
             )
 
+        self.orders_placed += 1
         try:
             self.logger.info(
-                f"🔴 PLACING SELL ORDER: {asset} ${amount:.2f} "
+                f"🔴 PLACING SELL ORDER (CLOSE): {asset} ${amount:.2f} "
                 f"(confidence: {signal_confidence:.1%})"
             )
 
@@ -228,18 +243,30 @@ class OrderExecutor:
                 timeout=10
             )
 
-            if result:
-                self.orders_executed += 1
-                self.total_traded += amount
-                status = OrderStatus.EXECUTED.value
-                message = "Order executed successfully"
-            else:
+            # FIX #1: Properly unpack tuple (success, response)
+            success, response = result
+
+            if not success:
                 self.orders_failed += 1
                 status = OrderStatus.FAILED.value
-                message = "Order rejected by broker"
+                message = str(response) if response else "Unknown broker error"
+                order_id = None
+            else:
+                # FIX #2: Extract actual order ID from broker response
+                if isinstance(response, dict) and response.get("id"):
+                    order_id = str(response.get("id"))
+                    self.orders_executed += 1
+                    self.total_traded += amount
+                    status = OrderStatus.EXECUTED.value
+                    message = "Position closed successfully"
+                else:
+                    self.orders_failed += 1
+                    status = OrderStatus.FAILED.value
+                    message = "Broker response missing order ID"
+                    order_id = None
 
             order_result = OrderResult(
-                order_id=str(result) if result else None,
+                order_id=order_id,
                 asset=asset,
                 side="SELL",
                 amount=amount,
@@ -249,11 +276,10 @@ class OrderExecutor:
                 execution_price=0.0
             )
 
-            self.orders_placed += 1
             self._record_order(order_result)
 
             if status == OrderStatus.EXECUTED.value:
-                self.logger.info(f"✅ SELL ORDER EXECUTED: {asset} ${amount:.2f}")
+                self.logger.info(f"✅ SELL ORDER EXECUTED: {asset} ${amount:.2f} (ID: {order_id})")
             else:
                 self.logger.warning(f"❌ SELL ORDER FAILED: {asset} - {message}")
 
@@ -274,7 +300,7 @@ class OrderExecutor:
 
         except Exception as e:
             self.orders_failed += 1
-            self.logger.error(f"❌ SELL ORDER ERROR: {asset} - {e}")
+            self.logger.error(f"❌ SELL ORDER ERROR: {asset} - {type(e).__name__}: {e}")
             return OrderResult(
                 order_id=None,
                 asset=asset,
@@ -285,41 +311,41 @@ class OrderExecutor:
                 message=f"Execution error: {str(e)}"
             )
 
-    async def _place_buy_order(self, asset: str, amount: float, duration: int):
+    async def _place_buy_order(self, asset: str, amount: float, duration: int, direction: str = "call"):
         """Internal: Place BUY order via Quotex API.
 
         Args:
             asset: Asset symbol
             amount: Trade amount
             duration: Expiration in seconds
+            direction: Order direction "call" or "put"
 
         Returns:
-            Order result from API
+            Tuple: (success: bool, response: dict|error_string)
         """
         try:
-            # BUG FIX #7: Use correct async signature for Quotex.buy()
-            # Signature: async def buy(self, amount: float, asset: str, direction: str, duration: int, time_mode: str = "TIME")
+            # Call Quotex API
             result = await self.client.buy(
                 amount=amount,
                 asset=asset,
-                direction="call",
+                direction=direction,
                 duration=duration,
                 time_mode="TIME"
             )
             return result
         except Exception as e:
-            self.logger.error(f"API BUY error: {e}")
-            return None
+            self.logger.error(f"API BUY error: {type(e).__name__}: {e}")
+            return (False, f"API Error: {str(e)}")
 
     async def _place_sell_order(self, asset: str, amount: float):
-        """Internal: Place SELL order via Quotex API.
+        """Internal: Place SELL order (close position) via Quotex API.
 
         Args:
             asset: Asset symbol
             amount: Trade amount
 
         Returns:
-            Order result from API
+            Tuple: (success: bool, response: dict|error_string)
         """
         try:
             # Call Quotex API: client.sell_option()
@@ -327,8 +353,8 @@ class OrderExecutor:
             result = await self.client.sell_option()
             return result
         except Exception as e:
-            self.logger.error(f"API SELL error: {e}")
-            return None
+            self.logger.error(f"API SELL error: {type(e).__name__}: {e}")
+            return (False, f"API Error: {str(e)}")
 
     def _record_order(self, order_result: OrderResult) -> None:
         """Record order in history for tracking.
