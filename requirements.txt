@@ -10,6 +10,8 @@ urllib3>=2.5
 websocket-client>=1.8
 fake-useragent>=2.2
 eel>=0.16
+orjson>=3.12
+python-dotenv>=1.2
 # ML Packages for enhanced signals
 pandas>=2.2
 scikit-learn>=1.4
