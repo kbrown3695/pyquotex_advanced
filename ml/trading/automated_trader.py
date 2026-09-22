@@ -283,17 +283,22 @@ class AutomatedTrader:
         if self.order_executor:
             try:
                 if signal.side == "BUY":
+                    # BUY signal = CALL (bullish) option
                     order_result = await self.order_executor.execute_buy_order(
                         asset=signal.asset,
                         amount=position_size,
                         expiration_time=300,
-                        signal_confidence=signal.confidence
+                        signal_confidence=signal.confidence,
+                        direction="call"
                     )
                 else:  # SELL
-                    order_result = await self.order_executor.execute_sell_order(
+                    # SELL signal = PUT (bearish) option
+                    order_result = await self.order_executor.execute_buy_order(
                         asset=signal.asset,
                         amount=position_size,
-                        signal_confidence=signal.confidence
+                        expiration_time=300,
+                        signal_confidence=signal.confidence,
+                        direction="put"
                     )
 
                 if order_result and order_result.status == "EXECUTED":
