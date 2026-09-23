@@ -39,6 +39,19 @@ class _Settings:
     automation_start_hour: int = 0  # 24-hour format (0-23)
     automation_end_hour: int = 23
 
+    # Signal confidence threshold (configurable minimum)
+    min_signal_confidence: float = 0.30  # Require 30% confidence minimum
+
+    # ==================== Data Accumulation Phase (Phase I) ====================
+    # Automatic warm-up period to collect training data before trading
+    enable_data_accumulation_phase: bool = True
+    data_accumulation_min_candles: int = 500  # Collect 500+ candles per asset before trading
+    data_accumulation_timeout_minutes: int = 120  # Max 2 hours to collect data
+
+    # During accumulation, show progress but don't execute trades
+    data_accumulation_show_signals: bool = True  # Display signals even during warmup
+    data_accumulation_allow_trades: bool = False  # But don't execute them yet
+
     # Position sizing
     risk_per_trade_percent: float = 2.0  # Risk 2% of balance per trade
     max_position_size_percent: float = 10.0  # Max 10% of balance per trade

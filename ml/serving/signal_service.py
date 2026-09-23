@@ -116,17 +116,14 @@ class MLSignalService:
 		results = {}
 		models_trained = []
 
-		# Phase A: Train Ensemble (DirectionalClassifier + EnsembleModel wrapper)
+		# Phase A: Train Ensemble (VotingClassifier of multiple base learners)
 		try:
-			dc = DirectionalClassifier(algorithm="random_forest")
-			dc.set_feature_names(feature_names)
-			dc.train(X, y)
-
-			ensemble = EnsembleModel()
+			ensemble = EnsembleModel(
+				model_names=["random_forest", "logistic_regression"],
+				voting="soft"
+			)
 			ensemble.set_feature_names(feature_names)
-			# Wrap the trained classifier
-			ensemble.models = [dc]
-			ensemble.algorithm = "voting"
+			ensemble.train(X, y)
 
 			self.registry.save_and_activate(
 				ensemble, asset, timeframe,
@@ -484,19 +481,28 @@ class MLSignalService:
 
 		# Binary Options: Train ReversalPredictorModel
 		try:
-			reversal_model = ReversalPredictorModel(model_type="regression")
-			reversal_model.set_feature_names(feature_names)
-			print(f"[reversal_predictor] Training with {len(X)} samples", flush=True)
-			reversal_model.train(X, y)
+			from ml.models.reversal_predictor import build_reversal_dataset
 
-			self.registry.save_and_activate(
-				reversal_model, asset, timeframe,
-				metrics={"status": "trained", "samples": len(X)},
-				algorithm="reversal_regression",
-				model_key="reversal_predictor",
-			)
-			models_trained.append("reversal_predictor")
-			print(f"[reversal_predictor] ✅ Training complete", flush=True)
+			# Build specialized reversal dataset (time-to-reversal labels)
+			X_reversal, y_reversal = build_reversal_dataset(candles, lookahead_periods=50)
+
+			if len(X_reversal) > 0:
+				reversal_model = ReversalPredictorModel(model_type="regression")
+				reversal_model.set_feature_names(feature_names)
+				print(f"[reversal_predictor] Training with {len(X_reversal)} samples", flush=True)
+
+				train_metrics = reversal_model.train(X_reversal, y_reversal)
+
+				self.registry.save_and_activate(
+					reversal_model, asset, timeframe,
+					metrics=train_metrics,
+					algorithm="reversal_regression",
+					model_key="reversal_predictor",
+				)
+				models_trained.append("reversal_predictor")
+				print(f"[reversal_predictor] ✅ Training complete: {train_metrics}", flush=True)
+			else:
+				print(f"[reversal_predictor] ⚠️ Insufficient data for reversal dataset", flush=True)
 		except Exception as e:
 			import traceback
 			results["reversal_predictor_error"] = str(e)
@@ -608,8 +614,9 @@ class MLSignalService:
 			)
 			if ensemble_model:
 				ensemble_proba = ensemble_model.predict_proba(features_array)
-		except Exception:
-			pass
+		except Exception as e:
+			import sys
+			print(f"[{asset} {timeframe}] ⚠️  Ensemble model failed: {type(e).__name__}: {e}", file=sys.stderr)
 
 		# Kalman prediction + regime + volatility (Phase A)
 		try:

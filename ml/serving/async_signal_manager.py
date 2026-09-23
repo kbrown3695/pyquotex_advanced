@@ -62,13 +62,14 @@ class AsyncSignalManager:
     ) -> None:
         """Add asset to signal generation.
 
-        Starts a background thread that generates signals every interval_seconds.
+        Registers callback for event-driven signal generation on new candles.
+        Falls back to polling if callback system not available.
 
         Args:
             asset: Asset symbol (e.g. "AUD/CAD (OTC)")
             timeframe: Timeframe (e.g. "1m")
             get_candles_fn: Callable that returns current candles list
-            interval_seconds: How often to generate signals (default 10s)
+            interval_seconds: How often to generate signals (default 10s, ignored if callbacks used)
         """
         key = f"{asset}_{timeframe}"
 
@@ -77,17 +78,72 @@ class AsyncSignalManager:
                 return  # Already running
 
             self.candles_getters[key] = get_candles_fn
-            self.stop_signals[key] = threading.Event()
 
-            # Start signal thread
-            thread = threading.Thread(
-                target=self._signal_loop,
-                args=(asset, timeframe, get_candles_fn, interval_seconds),
-                daemon=True,
-                name=f"Signals-{asset}-{timeframe}",
-            )
-            thread.start()
-            self.threads[key] = thread
+            # Try to use callback-based (event-driven) signal generation
+            try:
+                from ml.serving.signal_callback_manager import get_signal_callback_manager
+                callback_mgr = get_signal_callback_manager()
+
+                # Create async callback for this asset
+                async def on_new_candle(event):
+                    await self._generate_signal_from_event(asset, timeframe, get_candles_fn)
+
+                # Register the callback
+                callback_mgr.register_candle_callback(asset, timeframe, on_new_candle)
+
+                import sys
+                print(f"[{asset} {timeframe}] ✅ Event-driven signal generation activated", file=sys.stderr)
+                self.threads[key] = None  # Mark as registered (not a thread)
+
+            except Exception as e:
+                # Fall back to polling if callback system not available
+                print(f"[{asset} {timeframe}] ⚠️ Callback system unavailable, falling back to polling: {e}", file=sys.stderr)
+                self.stop_signals[key] = threading.Event()
+                thread = threading.Thread(
+                    target=self._signal_loop,
+                    args=(asset, timeframe, get_candles_fn, interval_seconds),
+                    daemon=True,
+                    name=f"Signals-{asset}-{timeframe}",
+                )
+                thread.start()
+                self.threads[key] = thread
+
+    async def _generate_signal_from_event(
+        self,
+        asset: str,
+        timeframe: str,
+        get_candles_fn: Callable[[], list],
+    ) -> None:
+        """Generate signal immediately when new candle event arrives (event-driven).
+
+        Args:
+            asset: Asset symbol
+            timeframe: Timeframe
+            get_candles_fn: Function to get current candles
+        """
+        key = f"{asset}_{timeframe}"
+        try:
+            candles = get_candles_fn()
+            if not candles or len(candles) < 26:
+                return
+
+            # Generate signal async
+            signal = self.ml_service.generate_signal(asset, timeframe, candles)
+            if signal:
+                with self._lock:
+                    self.signal_cache[key] = SignalCache(
+                        signal=signal.to_dict(),
+                        timestamp=time.time(),
+                        asset=asset,
+                        timeframe=timeframe,
+                    )
+                import sys
+                print(f"[{asset} {timeframe}] ✅ Signal generated (event-driven): {signal.side} @ {signal.confidence:.2f}", file=sys.stderr)
+        except Exception as e:
+            import sys
+            import traceback
+            print(f"[{asset} {timeframe}] Signal generation error: {type(e).__name__}: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
 
     def _signal_loop(
         self,
@@ -96,7 +152,7 @@ class AsyncSignalManager:
         get_candles_fn: Callable[[], list],
         interval_seconds: float,
     ) -> None:
-        """Background thread that generates signals at regular intervals.
+        """Background thread that generates signals at regular intervals (fallback polling).
 
         Args:
             asset: Asset symbol
@@ -226,8 +282,11 @@ class AsyncSignalManager:
         with self._lock:
             if key in self.stop_signals:
                 self.stop_signals[key].set()
-            if key in self.threads:
-                self.threads[key].join(timeout=2.0)
+            if key in self.threads and self.threads[key] is not None:
+                try:
+                    self.threads[key].join(timeout=2.0)
+                except Exception:
+                    pass
             if key in self.signal_cache:
                 del self.signal_cache[key]
 

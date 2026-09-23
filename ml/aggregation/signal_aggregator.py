@@ -619,6 +619,13 @@ class MultiModelAggregator:
 			components=components,
 		)
 
+		# Debug: Log low confidence signals to diagnose why models are neutral
+		if confidence < 0.3:
+			import sys
+			print(f"[DEBUG] Low confidence signal: {side} @ {confidence:.3f}", file=sys.stderr)
+			print(f"  p_up_ensemble={p_up_ensemble:.3f} p_up_advanced={p_up_advanced:.3f} p_up_deep={p_up_deep:.3f} p_up_combined={p_up_combined:.3f}", file=sys.stderr)
+			print(f"  reason={reason}", file=sys.stderr)
+
 		# Enrich with binary options features (Phase 1.5)
 		enriched_signal = self.enrich_signal_with_binary_options(base_signal, candles)
 

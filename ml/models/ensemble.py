@@ -212,4 +212,24 @@ class EnsembleModel(BaseTradingModel):
         instance.ensemble = data["ensemble"]
         instance._feature_names = data.get("feature_names")
         instance._metadata = data.get("metadata", {})
+
+        # Validate and restore soft-voting attributes after loading
+        # joblib.dump/load can lose VotingClassifier's fitted state
+        if instance.voting == "soft" and instance.ensemble is not None:
+            if not hasattr(instance.ensemble, "predict_proba"):
+                # Ensemble lost predict_proba after deserialization
+                # Try to restore from estimators_ if they exist
+                if hasattr(instance.ensemble, "estimators_"):
+                    classes = None
+                    for est in instance.ensemble.estimators_:
+                        if hasattr(est, "classes_"):
+                            classes = est.classes_
+                            break
+
+                    if classes is not None:
+                        le = LabelEncoder()
+                        le.classes_ = np.asarray(classes)
+                        instance.ensemble.le_ = le
+                        instance.ensemble.classes_ = le.classes_
+
         return instance

@@ -172,10 +172,12 @@ class AutomatedTrader:
             self.rejected_signals += 1
             return result
 
-        # Check 5: Signal confidence minimum
-        if signal.confidence < 0.5:
-            result['rejected_reason'] = f"Low confidence: {signal.confidence:.2f} < 0.5"
+        # Check 5: Signal confidence minimum (configurable)
+        min_conf = settings.min_signal_confidence
+        if signal.confidence < min_conf:
+            result['rejected_reason'] = f"Low confidence: {signal.confidence:.2f} < {min_conf}"
             self.rejected_signals += 1
+            self.logger.info(f"⚠️  Rejected {signal.asset} {signal.side}: confidence {signal.confidence:.3f} below threshold {min_conf}")
             return result
 
         # Check 6: Account constraints
@@ -186,14 +188,20 @@ class AutomatedTrader:
             self.logger.warning(f"⚠️  Trade rejected: {constraint_reason}")
             return result
 
-        # Check 7: WebSocket health
-        health_ok, health_reason = self.health_monitor.check_data_quality(
-            ConnectionHealth.GOOD
-        )
+        # Check 7: WebSocket health (adaptive based on signal confidence)
+        # High confidence signals can trade on DEGRADED data, low confidence need GOOD
+        if signal.confidence >= 0.7:
+            # High confidence: allow DEGRADED (but not CRITICAL)
+            min_health = ConnectionHealth.DEGRADED
+        else:
+            # Low-medium confidence: require GOOD
+            min_health = ConnectionHealth.GOOD
+
+        health_ok, health_reason = self.health_monitor.check_data_quality(min_health)
         if not health_ok:
             result['rejected_reason'] = f"Data quality: {health_reason}"
             self.rejected_signals += 1
-            self.logger.warning(f"⚠️  Trade rejected: {health_reason}")
+            self.logger.warning(f"⚠️  Trade rejected: {health_reason} (confidence: {signal.confidence:.2f})")
             return result
 
         # Calculate position size

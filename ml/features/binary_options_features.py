@@ -422,9 +422,9 @@ class BinaryOptionsFeatureEngineer:
             return 0.0
 
         # Assume timestamp is Unix time (seconds since epoch)
-        from datetime import datetime
+        from datetime import datetime, timezone
         try:
-            dt = datetime.utcfromtimestamp(candle_time)
+            dt = datetime.fromtimestamp(candle_time, timezone.utc)
             hour_utc = dt.hour
         except (ValueError, OSError):
             # Invalid timestamp, neutral weight

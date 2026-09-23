@@ -127,6 +127,13 @@ except ImportError as e:
     AutomatedTrader = None
 
 try:
+    from ml.training.data_accumulation_tracker import DataAccumulationTracker
+    print("[OK] ✅ DataAccumulationTracker imported successfully")
+except ImportError as e:
+    print(f"⚠️ DataAccumulationTracker import failed: {e}")
+    DataAccumulationTracker = None
+
+try:
     from ml.serving.auto_trading_manager import AutoTradingManager
     print("[OK] ✅ AutoTradingManager imported successfully")
 except ImportError as e:
@@ -194,6 +201,47 @@ time.sleep(0.3)
 if ASYNC_LOOP is None:
     print("❌ Failed to initialize Async Loop")
     sys.exit(1)
+
+# ======================
+# Startup Auto-Training
+# ======================
+def _schedule_startup_retrain():
+    """Force model retraining 30 seconds after login."""
+    def retrain():
+        time.sleep(30)  # Wait for candles to accumulate
+        global ML_SERVICE, CANDLES, CURRENT_ASSET, CURRENT_TIMEFRAME
+
+        if not ML_SERVICE or not CANDLES:
+            return
+
+        assets = ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "USD/INR (OTC)"]
+        for asset in assets:
+            try:
+                candles = CANDLES.get(asset, {}).get("1m", [])
+                if len(candles) < 100:
+                    print(f"[{asset}] ⚠️  Only {len(candles)} candles, skipping retrain")
+                    continue
+
+                print(f"[{asset}] 🔄 Auto-retraining on {len(candles)} candles...")
+                fut = asyncio.run_coroutine_threadsafe(
+                    _train_ml_signals_async_single(asset, "1m", candles),
+                    ASYNC_LOOP
+                )
+                result = fut.result(timeout=120)
+                print(f"[{asset}] ✅ Auto-retrain complete: {result.get('status', 'done')}")
+
+                # Flush model cache so signal generation uses fresh models
+                if ML_SERVICE and hasattr(ML_SERVICE, 'registry'):
+                    if hasattr(ML_SERVICE.registry, 'cache'):
+                        ML_SERVICE.registry.cache.clear()
+                        print(f"[{asset}] 🔄 Flushed model cache")
+
+            except Exception as e:
+                print(f"[{asset}] ❌ Auto-retrain failed: {e}")
+                import traceback
+                traceback.print_exc()
+
+    threading.Thread(target=retrain, daemon=True, name="StartupRetrain").start()
 
 # ======================
 # UI Update Queue
@@ -302,6 +350,36 @@ if WebSocketHealthMonitor:
     except Exception as e:
         print(f"⚠️ WebSocketHealthMonitor init failed: {e}")
 
+# ✅ Phase I: Initialize Data Accumulation Tracker (for selected pairs only)
+if DataAccumulationTracker:
+    try:
+        from ml.config import settings
+        import json
+
+        # Load selected pairs
+        selected_pairs = []
+        try:
+            with open("selected_signal_pairs.json", "r") as f:
+                selected_pairs = json.load(f)
+        except:
+            print("⚠️ Could not load selected_signal_pairs.json, using default pairs")
+            selected_pairs = ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "USD/INR (OTC)"]
+
+        DATA_ACCUMULATOR = DataAccumulationTracker(
+            min_candles=settings.data_accumulation_min_candles,
+            min_duration_seconds=settings.data_accumulation_timeout_minutes * 60
+        )
+
+        # Pre-register only the selected pairs
+        for pair in selected_pairs:
+            DATA_ACCUMULATOR.register_subscription(pair, "1m")
+
+        print(f"✅ DataAccumulationTracker initialized")
+        print(f"   Target: {settings.data_accumulation_min_candles} candles per asset")
+        print(f"   Tracking {len(selected_pairs)} pairs: {', '.join(selected_pairs)}")
+    except Exception as e:
+        print(f"⚠️ DataAccumulationTracker init failed: {e}")
+
 if OrderExecutor:
     try:
         ORDER_EXECUTOR = OrderExecutor()
@@ -368,27 +446,46 @@ async def _poll_and_execute_signals():
     This is the critical link that was missing:
     Signal Generation → SIGNAL_MANAGER cache → THIS FUNCTION → AutoTradingManager → OrderExecutor
     """
-    global SIGNAL_MANAGER, AUTO_TRADING_MANAGER, SIGNAL_POLLING_RUNNING
+    global SIGNAL_MANAGER, AUTO_TRADING_MANAGER, SIGNAL_POLLING_RUNNING, ML_SERVICE
 
     if not SIGNAL_MANAGER or not AUTO_TRADING_MANAGER or not AUTO_TRADING_MANAGER.is_enabled:
         return
 
     try:
         # Get all cached signals for active pairs
-        for pair_name in AUTO_TRADING_MANAGER.get_active_pairs():
+        active_pairs = AUTO_TRADING_MANAGER.get_active_pairs()
+        if not active_pairs:
+            return
+
+        for pair_name in active_pairs:
             try:
                 # Get cached signal (if any)
                 signal_data = SIGNAL_MANAGER.get_signal(pair_name, "1m")
 
                 if not signal_data:
+                    # Debug: show which signals are missing
+                    print(f"[POLLING] No cached signal for {pair_name}", file=sys.stderr)
                     continue
 
                 # Validate signal has required fields
                 if 'side' not in signal_data or 'confidence' not in signal_data:
                     continue
 
-                # Skip low confidence signals
-                if signal_data['confidence'] < 0.5:
+                # Phase I: Skip trading during data accumulation phase
+                from ml.config import settings
+                if settings.enable_data_accumulation_phase and not ACCUMULATION_PHASE_COMPLETE:
+                    if settings.data_accumulation_show_signals:
+                        # Show signal for monitoring, but don't trade yet
+                        continue
+                    else:
+                        # Don't even generate signals during accumulation
+                        continue
+
+                # Skip low confidence signals (use config threshold, not hard-coded)
+                from ml.config import settings
+                min_conf = settings.min_signal_confidence
+                if signal_data['confidence'] < min_conf:
+                    print(f"⚠️ SIGNAL REJECTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.2f} (below threshold {min_conf})", file=sys.stderr)
                     continue
 
                 # Create TradeSignal from cached signal
@@ -409,12 +506,39 @@ async def _poll_and_execute_signals():
                 if result.get('executed'):
                     print(f"✅ SIGNAL EXECUTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.1%}")
 
+                    # ✅ [NEW] Store signal info for later feedback to training
+                    # When position closes, we'll report this trade outcome to ML_SERVICE
+                    trade = result.get('trade')
+                    if trade and ML_SERVICE:
+                        # Store the signal components for later learning
+                        signal_components = {
+                            'side': trade_signal.side,
+                            'confidence': trade_signal.confidence,
+                            'target_return': trade_signal.target_return,
+                            'model_name': trade_signal.model_name,
+                            'timestamp': trade_signal.timestamp,
+                        }
+                        # Store in position tracker for later feedback
+                        if POSITION_TRACKER and hasattr(POSITION_TRACKER, 'set_signal_info'):
+                            POSITION_TRACKER.set_signal_info(
+                                position_id=trade.order_id,
+                                signal_components=signal_components,
+                                entry_price=result.get('execution_price', 0.0)
+                            )
+
+                elif result.get('rejected_reason'):
+                    print(f"⚠️ SIGNAL REJECTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.2f} ({result['rejected_reason']})", file=sys.stderr)
+
             except Exception as e:
+                import traceback
                 print(f"⚠️ Error processing signal for {pair_name}: {e}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
                 continue
 
     except Exception as e:
+        import traceback
         print(f"❌ Signal polling error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
 
 async def signal_polling_loop():
     """Continuously poll signals every 5 seconds (BUG FIX #13)."""
@@ -438,8 +562,8 @@ TICK_IDLE_THRESHOLD   = 90   # ✅ Increased from 30s to reduce false reconnects
 PING_INTERVAL         = 90   # ✅ Increased from 60s
 RESUB_INTERVAL        = 60   # ✅ Increased from 30s
 HARD_PING_INTERVAL    = 60   # ✅ Kept stable
-EMPTY_TICK_RESUB_THRESHOLD = 30  # ✅ Increased from 12
-MAX_CONSECUTIVE_EMPTY = 100  # ✅ Increased from 50
+EMPTY_TICK_RESUB_THRESHOLD = 60  # ✅ FIXED: Raised from 30 to reduce false resubscriptions (3s window)
+MAX_CONSECUTIVE_EMPTY = 200  # ✅ FIXED: Raised from 100 for better stability (10s grace period)
 
 ASSET_DISPLAY_MAP: Dict[str, str] = {}
 forex_assets = {
@@ -534,6 +658,10 @@ LOGIN_SUCCESS = False
 CHART_OPENED = False
 ACTIVE_TASKS: Dict[str, asyncio.Task] = {}
 BACKGROUND_TASKS: Dict[str, asyncio.Task] = {}
+
+# Phase I: Data Accumulation Tracker
+DATA_ACCUMULATOR: Optional[object] = None  # DataAccumulationTracker instance
+ACCUMULATION_PHASE_COMPLETE = False
 BACKGROUND_LOADER_TASK = None
 
 # ======================
@@ -992,7 +1120,7 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
     return formatted
 
 def update_candle(asset: str, frame: str, price: float, ts_sec: int, volume: float = 0.0):
-    global CANDLES, CURRENT_CANDLE, CANDLE_STORE, TIMEFRAME_AGGREGATOR, FALLBACK_AGGREGATOR
+    global CANDLES, CURRENT_CANDLE, CANDLE_STORE, TIMEFRAME_AGGREGATOR, FALLBACK_AGGREGATOR, DATA_ACCUMULATOR, ACCUMULATION_PHASE_COMPLETE
     duration = TIMEFRAMES.get(frame, 60)
     start = (ts_sec // duration) * duration
     curr = CURRENT_CANDLE.get(asset, {}).get(frame, {})
@@ -1012,8 +1140,32 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int, volume: flo
             if frame == "1m":
                 FALLBACK_AGGREGATOR.aggregate_1m_to_timeframes(asset, candle_copy)
 
+            # Phase I: Record candle for accumulation tracking (only for selected pairs)
+            if DATA_ACCUMULATOR and frame == "1m":
+                # Only track pairs that were explicitly registered (selected pairs)
+                key = f"{asset}_1m"
+                if key in DATA_ACCUMULATOR.subscriptions:
+                    DATA_ACCUMULATOR.record_candle(asset, frame)
+                    # Check if accumulation is now complete
+                    if not ACCUMULATION_PHASE_COMPLETE and DATA_ACCUMULATOR.is_ready_for_trading(required_ready_percent=100.0):
+                        ACCUMULATION_PHASE_COMPLETE = True
+                        DATA_ACCUMULATOR.mark_complete()
+                        log(f"🎉 Data accumulation phase complete! All {len(DATA_ACCUMULATOR.subscriptions)} selected pairs ready for live trading.", 0)
+
             if len(CANDLES[asset][frame]) > 200:
                 CANDLES[asset][frame] = CANDLES[asset][frame][-200:]
+
+            # ✅ [NEW] Fire event callback for real-time signal generation
+            # When a new candle completes, notify subscribers immediately
+            try:
+                from ml.serving.signal_callback_manager import get_signal_callback_manager
+                callback_mgr = get_signal_callback_manager()
+                asyncio.run_coroutine_threadsafe(
+                    callback_mgr.on_candle_completed(asset, frame, candle_copy),
+                    ASYNC_LOOP
+                )
+            except Exception as e:
+                log(f"⚠️ Error firing candle event for {asset}/{frame}: {e}", 2)
 
         CURRENT_CANDLE.setdefault(asset, {})[frame] = {
             "time": start, "open": price, "high": price, "low": price, "close": price, "volume": volume
@@ -1218,18 +1370,19 @@ async def realtime_price_loop(asset_display: str):
 
             if consecutive_empty >= EMPTY_TICK_RESUB_THRESHOLD:
                 if (time.time() - last_resub_time) > 15:  # ✅ Exponential backoff: wait 15s before resub
-                    log(f"⚠️ {consecutive_empty} empty ticks — forcing resub (backoff applied)", 1)
+                    log(f"⚠️ {consecutive_empty} empty ticks — forcing resub (backoff applied). Broker may be unstable.", 1)
                     try:
                         period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
                         await CLIENT.start_realtime_price(internal, period)
                         update_subscription_time()
                         last_resub_time = time.time()
                         consecutive_empty = 0
-                    except Exception:
+                    except Exception as e:
+                        log(f"❌ Resubscription failed: {e} — triggering full reconnect", 1)
                         asyncio.create_task(full_reconnect())
                         break
                 elif consecutive_empty >= MAX_CONSECUTIVE_EMPTY:
-                    log(f"❌ {consecutive_empty} empty ticks (max reached) — full reconnect", 1)
+                    log(f"❌ {consecutive_empty} empty ticks (max reached) — broker unresponsive, full reconnect needed", 1)
                     asyncio.create_task(full_reconnect())
                     break
 
@@ -1327,52 +1480,58 @@ async def chart_opened_loader(asset: str):
     for pair_display in SIGNAL_PAIRS:
         _start_signal_generation(pair_display, "1m")
 
-    # Start background polling for non-active pairs to accumulate candles
-    async def poll_background_pairs():
-        """Periodically fetch candles for background pairs to feed signal generation."""
+    # Start REAL-TIME streaming for each background signal pair (not active asset)
+    async def stream_background_pair(pair_display: str):
+        """Continuously stream real-time prices for one background pair."""
+        consecutive_timeouts = 0
         while True:
             try:
-                await asyncio.sleep(30)  # Poll every 30 seconds
-
-                # Safety check: ensure CLIENT is ready before polling
-                if not CLIENT or not hasattr(CLIENT, 'get_candles'):
-                    log("⚠️ CLIENT not ready for background polling", 2)
+                internal = DISPLAY_TO_INTERNAL.get(pair_display)
+                if not internal or not CLIENT:
+                    await asyncio.sleep(5)
                     continue
 
-                for pair in SIGNAL_PAIRS:
-                    if pair == CURRENT_ASSET:
-                        continue  # Skip the active asset (uses realtime)
+                period = 60  # 1m candles
+                await CLIENT.start_realtime_price(internal, period)
+                log(f"🌊 Streaming {pair_display} for signal generation", 2)
+                consecutive_timeouts = 0
+
+                # Continuously get realtime price updates
+                while True:
                     try:
-                        internal = DISPLAY_TO_INTERNAL.get(pair)
-                        if internal:
-                            # Fetch last 50 candles to backfill (with timeout)
-                            try:
-                                candles = await asyncio.wait_for(
-                                    asyncio.create_task(CLIENT.get_candles(internal, time.time(), 50*60, 60)),
-                                    timeout=5.0
-                                )
-                            except asyncio.TimeoutError:
-                                log(f"⏱️ Background poll timeout for {pair}", 2)
-                                continue
-                            if candles:
-                                processed = process_candle_data(candles, 60)
-                                if processed:
-                                    if pair not in CANDLES:
-                                        CANDLES[pair] = {}
-                                    CANDLES[pair]["1m"] = processed[-200:]
-                                    if CANDLE_STORE:
-                                        for c in processed:
-                                            CANDLE_STORE.save_candle(pair, "1m", c)
-                                    log(f"📊 Backfilled {len(processed)} candles for {pair}", 2)
+                        data = await asyncio.wait_for(
+                            CLIENT.get_realtime_price(internal),
+                            timeout=5
+                        )
+                        if data and len(data) > 0:
+                            latest = data[-1]
+                            price = float(latest.get("price", latest.get("close", 0)))
+                            ts = int(float(latest.get("time", time.time())))
+                            if price > 0 and ts > 0:
+                                update_candle(pair_display, "1m", price, ts)
+                        consecutive_timeouts = 0
+                        await asyncio.sleep(0.05)
+                    except asyncio.TimeoutError:
+                        consecutive_timeouts += 1
+                        if consecutive_timeouts >= 5:
+                            log(f"⚠️ {pair_display}: Multiple timeouts, reconnecting", 2)
+                            break
+                        await asyncio.sleep(0.2)
                     except Exception as e:
-                        log(f"⚠️ Failed to poll {pair}: {e}", 2)
+                        log(f"⚠️ {pair_display}: Streaming error: {e}", 2)
+                        break
+
+                await asyncio.sleep(3)  # Brief wait before reconnect
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                log(f"⚠️ Background polling error: {e}", 2)
+                log(f"⚠️ {pair_display}: Task error: {e}", 2)
                 await asyncio.sleep(10)
 
-    start_background_task("poll_background_pairs", poll_background_pairs())
+    # Start streaming task for each non-active signal pair
+    for pair in SIGNAL_PAIRS:
+        if pair != CURRENT_ASSET:
+            start_background_task(f"stream_{pair.replace('/', '_')}", stream_background_pair(pair))
 
 async def smart_background_loader(asset: str):
     for tf in ["5m", "15m", "30m", "1h", "10s", "30s", "2m", "3m", "10m", "4h", "5s", "15s"]:
@@ -1599,8 +1758,14 @@ def _start_signal_generation(asset: str, timeframe: str = "1m") -> None:
     # Check if signal thread already running for this asset
     key = f"{asset}_{timeframe}"
     if hasattr(SIGNAL_MANAGER, 'threads') and key in SIGNAL_MANAGER.threads:
-        if SIGNAL_MANAGER.threads[key].is_alive():
+        thread = SIGNAL_MANAGER.threads[key]
+        # Event-driven signals have thread=None, polling threads are actual Thread objects
+        if thread is not None and thread.is_alive():
             log(f"Signal generation already running for {asset} {timeframe}", 2)
+            return
+        elif thread is None:
+            # Event-driven signal already registered
+            log(f"Signal generation already running (event-driven) for {asset} {timeframe}", 2)
             return
 
     try:
@@ -1770,6 +1935,31 @@ async def _train_ml_signals_async():
         return result
     except Exception as e:
         log(f"❌ ML training error: {e}", 1)
+        return {'error': str(e)}
+
+async def _train_ml_signals_async_single(asset: str, timeframe: str, candles: list):
+    """Train ML models for a specific asset/timeframe."""
+    if not ML_SERVICE and not ENSEMBLE_GENERATOR:
+        return {'error': 'ML signals not available'}
+
+    try:
+        if len(candles) < 100:
+            return {'error': f'Need at least 100 candles, have {len(candles)}'}
+
+        loop = asyncio.get_event_loop()
+        if ML_SERVICE:
+            result = await loop.run_in_executor(
+                None, ML_SERVICE.train_all, asset, timeframe, candles
+            )
+        else:
+            result = await loop.run_in_executor(
+                None, ENSEMBLE_GENERATOR.ml.train, candles
+            )
+
+        return {'status': 'trained', 'asset': asset, 'timeframe': timeframe, **result}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {'error': str(e)}
 
 async def _get_ml_signal_async():
@@ -2439,8 +2629,8 @@ def enable_automation():
 
 		for pair in selected_pairs:
 			try:
-				# Start signal generation thread for this pair
-				start_signal_generation(pair, "1m")
+				# Use display names directly - real-time streaming updates CANDLES with display names
+				_start_signal_generation(pair, "1m")
 				log(f"   ✅ Started signal generation for {pair}", 1)
 			except Exception as e:
 				log(f"   ⚠️ Failed to start signals for {pair}: {e}", 2)
@@ -2495,8 +2685,12 @@ def disable_automation():
 		# BUG FIX #9: Stop signal generation for all pairs
 		if SIGNAL_MANAGER and hasattr(SIGNAL_MANAGER, 'threads'):
 			for key in list(SIGNAL_MANAGER.threads.keys()):
-				if SIGNAL_MANAGER.threads[key].is_alive():
+				thread = SIGNAL_MANAGER.threads[key]
+				# Event-driven signals have thread=None, polling threads are actual Thread objects
+				if thread is not None and thread.is_alive():
 					log(f"   ⏹️  Stopping signal generation for {key}", 1)
+				elif thread is None:
+					log(f"   ⏹️  Stopping event-driven signal generation for {key}", 1)
 
 		# BUG FIX #10: Persist automation state
 		persist_automation_state(False)
@@ -2528,7 +2722,9 @@ def get_automation_diagnostics():
 
 		# Check if signal manager is running
 		if SIGNAL_MANAGER and hasattr(SIGNAL_MANAGER, 'threads'):
-			diagnostics["signal_threads_running"] = sum(1 for t in SIGNAL_MANAGER.threads.values() if t.is_alive())
+			# Count both polling threads (alive) and event-driven threads (None)
+			signal_threads_running = sum(1 for t in SIGNAL_MANAGER.threads.values() if t is None or (t is not None and t.is_alive()))
+			diagnostics["signal_threads_running"] = signal_threads_running
 			diagnostics["signal_threads_total"] = len(SIGNAL_MANAGER.threads)
 
 		return diagnostics
@@ -2987,6 +3183,36 @@ def export_position_history(filepath="position_history.json"):
 		}
 
 @eel.expose
+def get_data_accumulation_status():
+	"""Get current data accumulation phase status.
+
+	Returns:
+		Dict with accumulation progress, ready assets, ETA
+	"""
+	global DATA_ACCUMULATOR, ACCUMULATION_PHASE_COMPLETE
+
+	if not DATA_ACCUMULATOR:
+		return {
+			'enabled': False,
+			'message': 'Data accumulation tracking not available'
+		}
+
+	status = DATA_ACCUMULATOR.get_status()
+	summary = DATA_ACCUMULATOR.get_readiness_summary()
+
+	return {
+		'enabled': True,
+		'is_complete': ACCUMULATION_PHASE_COMPLETE,
+		'summary': summary,
+		'total_assets': status['total_assets'],
+		'ready_assets': status['ready_assets'],
+		'elapsed_minutes': status['elapsed_minutes'],
+		'min_candles_required': status['min_candles_required'],
+		'min_duration_minutes': status['min_duration_minutes_required'],
+		'assets': status['assets']
+	}
+
+@eel.expose
 def export_order_history(filepath="order_history.json"):
 	"""Export complete order execution history to JSON.
 
@@ -3051,6 +3277,8 @@ if __name__ == "__main__":
                     try:
                         eel.onLoginSuccess()()
                         print("[DEBUG] onLoginSuccess() called")
+                        # Schedule automatic model retraining after login
+                        _schedule_startup_retrain()
                     except Exception as eel_err:
                         print(f"⚠️ onLoginSuccess() error: {eel_err}")
                 else:

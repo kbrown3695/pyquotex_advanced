@@ -130,7 +130,7 @@ class OrderExecutor:
                 asyncio.create_task(
                     self._place_buy_order(asset, amount, expiration_time, direction)
                 ),
-                timeout=10
+                timeout=90
             )
 
             # FIX #1: Properly unpack tuple (success, response)
@@ -240,7 +240,7 @@ class OrderExecutor:
                 asyncio.create_task(
                     self._place_sell_order(asset, amount)
                 ),
-                timeout=10
+                timeout=90
             )
 
             # FIX #1: Properly unpack tuple (success, response)
@@ -311,11 +311,22 @@ class OrderExecutor:
                 message=f"Execution error: {str(e)}"
             )
 
+    def _to_internal_asset(self, display_name: str) -> str:
+        """Convert display name to internal Quotex symbol.
+
+        Examples:
+            "EUR/USD (OTC)" → "EURUSD_otc"
+            "AUD/CAD (OTC)" → "AUDCAD_otc"
+        """
+        if not display_name:
+            return display_name
+        return display_name.replace(" (OTC)", "_otc").replace("/", "").replace(" ", "")
+
     async def _place_buy_order(self, asset: str, amount: float, duration: int, direction: str = "call"):
         """Internal: Place BUY order via Quotex API.
 
         Args:
-            asset: Asset symbol
+            asset: Asset symbol (display name like "EUR/USD (OTC)")
             amount: Trade amount
             duration: Expiration in seconds
             direction: Order direction "call" or "put"
@@ -324,10 +335,13 @@ class OrderExecutor:
             Tuple: (success: bool, response: dict|error_string)
         """
         try:
-            # Call Quotex API
+            # Convert "EUR/USD (OTC)" → "EURUSD_otc" for Quotex API
+            internal_asset = self._to_internal_asset(asset)
+            self.logger.info(f"   → Placing order: {asset} → {internal_asset}")
+
             result = await self.client.buy(
                 amount=amount,
-                asset=asset,
+                asset=internal_asset,
                 direction=direction,
                 duration=duration,
                 time_mode="TIME"

@@ -160,6 +160,50 @@ class PositionMonitor:
                         f"(${closed_pos.profit_loss_usd:+.2f})"
                     )
 
+                    # ✅ [NEW] Report trade outcome to ML training system (Phase G3 feedback)
+                    try:
+                        # Import here to avoid circular imports
+                        from ml.serving.signal_service import MLSignalService
+
+                        # Get signal info if available
+                        signal_components = getattr(closed_pos, 'signal_components', {})
+                        entry_price = getattr(closed_pos, 'entry_price', 0.0)
+
+                        if signal_components and entry_price > 0:
+                            # Report to online learning manager
+                            trade_result = {
+                                'profit': closed_pos.profit_loss_usd,
+                                'profit_pct': closed_pos.profit_loss_pct,
+                                'components': signal_components,
+                                'side': closed_pos.side,
+                                'entry': entry_price,
+                                'exit': exit_price,
+                                'asset': asset,
+                                'timestamp': time.time(),
+                            }
+
+                            # Call report_trade_outcome through engine (available globally)
+                            # This is set up in engine.py and wired to ML_SERVICE
+                            try:
+                                import sys
+                                # Import from engine module
+                                import importlib
+                                engine_module = sys.modules.get('__main__')
+                                if hasattr(engine_module, 'report_trade_outcome'):
+                                    report_outcome = engine_module.report_trade_outcome
+                                    report_outcome(
+                                        profit=closed_pos.profit_loss_usd,
+                                        components=signal_components,
+                                        side=closed_pos.side,
+                                        entry=entry_price,
+                                        exit=exit_price
+                                    )
+                                    self.logger.info(f"📊 Trade outcome reported to ML learning system for {position_id}")
+                            except Exception as feedback_err:
+                                self.logger.debug(f"Could not report trade outcome: {feedback_err}")
+                    except ImportError:
+                        pass  # ML system not available, skip feedback
+
             # Remove from tracking
             del self.position_expirations[position_id]
             del self.position_assets[position_id]

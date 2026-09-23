@@ -232,15 +232,16 @@ class WebSocketHealthMonitor:
         total = len(self.candle_metrics)
         stale_percent = (stale_count / total * 100) if total > 0 else 0
 
-        # Critical conditions
-        if avg_latency > self.LATENCY_CRITICAL_MS or stale_percent > 50 or consecutive_stale > 10:
+        # FIXED: More lenient CRITICAL threshold to reduce false positives
+        # Only mark CRITICAL if very bad conditions persist
+        if avg_latency > self.LATENCY_CRITICAL_MS or stale_percent > 75 or consecutive_stale > 20:
             return ConnectionHealth.CRITICAL
 
-        # Degraded conditions
-        if avg_latency > self.LATENCY_WARNING_MS or stale_percent > 20:
+        # Degraded conditions: temporary staleness is ok
+        if avg_latency > self.LATENCY_WARNING_MS or stale_percent > 40:
             return ConnectionHealth.DEGRADED
 
-        # Good conditions
+        # Good conditions: most assets fresh
         if avg_latency < 100 and stale_count == 0:
             return ConnectionHealth.EXCELLENT
 
