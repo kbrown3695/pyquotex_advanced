@@ -536,8 +536,8 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="maxTradesPerDayInput">Max Trades Per Day</label>
-                        <input type="number" id="maxTradesPerDayInput" min="1" max="1000" step="1" value="100">
+                        <label for="maxTradesInput">Max Trades Per Day</label>
+                        <input type="number" id="maxTradesInput" min="1" max="1000" step="1" value="100">
                         <small>Maximum number of trades allowed in a single day</small>
                     </div>
                 </div>
@@ -583,8 +583,8 @@
                     <h3>⛔ Loss Limits</h3>
 
                     <div class="form-group">
-                        <label for="dailyLossLimitInput">Daily Loss Limit ($)</label>
-                        <input type="number" id="dailyLossLimitInput" min="0" max="100000" step="1" value="500">
+                        <label for="dailyLossInput">Daily Loss Limit ($)</label>
+                        <input type="number" id="dailyLossInput" min="0" max="100000" step="1" value="500">
                         <small>Stop trading if daily losses exceed this amount</small>
                     </div>
 
@@ -1356,7 +1356,7 @@
         document.getElementById('endHourInput').value = currentConfig.endHour;
         document.getElementById('minConfidenceInput').value = currentConfig.minConfidence;
         document.getElementById('targetReturnInput').value = currentConfig.targetReturn;
-        document.getElementById('dailyLossLimitInput').value = currentConfig.dailyLossLimit;
+        document.getElementById('dailyLossInput').value = currentConfig.dailyLossLimit;
         document.getElementById('maxDrawdownInput').value = currentConfig.maxDrawdown;
 
         // Load pairs
@@ -1406,7 +1406,7 @@
             endHour: parseInt(document.getElementById('endHourInput').value || 23),
             minConfidence: parseInt(document.getElementById('minConfidenceInput').value || 50),
             targetReturn: parseFloat(document.getElementById('targetReturnInput').value || 2.5),
-            dailyLossLimit: parseFloat(document.getElementById('dailyLossLimitInput').value || 500),
+            dailyLossLimit: parseFloat(document.getElementById('dailyLossInput').value || 500),
             maxDrawdown: parseFloat(document.getElementById('maxDrawdownInput').value || 20)
         };
 
@@ -1459,7 +1459,7 @@
             endHour: parseInt(document.getElementById('endHourInput').value),
             minConfidence: parseInt(document.getElementById('minConfidenceInput').value),
             targetReturn: parseFloat(document.getElementById('targetReturnInput').value),
-            dailyLossLimit: parseFloat(document.getElementById('dailyLossLimitInput').value),
+            dailyLossLimit: parseFloat(document.getElementById('dailyLossInput').value),
             maxDrawdown: parseFloat(document.getElementById('maxDrawdownInput').value),
             selectedPairs: currentConfig.selectedPairs
         };
