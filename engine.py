@@ -365,10 +365,6 @@ if DataAccumulationTracker:
             min_duration_seconds=settings.data_accumulation_timeout_minutes * 60
         )
 
-        # Pre-register only the selected pairs
-        for pair in selected_pairs:
-            DATA_ACCUMULATOR.register_subscription(pair, "1m")
-
         print(f"[OK] DataAccumulationTracker initialized")
         print(f"   Target: {settings.data_accumulation_min_candles} candles per asset")
         print(f"   Tracking {len(selected_pairs)} pairs: {', '.join(selected_pairs)}")
