@@ -69,18 +69,6 @@ FEATURE_REGISTRY = (
         min_history=51,
     ),
     FeatureDefinition(
-        name="sma_50",
-        version="1.0",
-        description="50-period Simple Moving Average",
-        min_history=50,
-    ),
-    FeatureDefinition(
-        name="sma_100",
-        version="1.0",
-        description="100-period Simple Moving Average",
-        min_history=100,
-    ),
-    FeatureDefinition(
         name="ema_12_ratio",
         version="1.0",
         description="EMA12 / close ratio",
