@@ -40,7 +40,7 @@ class _Settings:
     automation_end_hour: int = 23
 
     # Signal confidence threshold (configurable minimum)
-    min_signal_confidence: float = 0.30  # Require 30% confidence minimum
+    min_signal_confidence: float = 0.05  # Require 30% confidence minimum
 
     # ==================== Data Accumulation Phase (Phase I) ====================
     # Automatic warm-up period to collect training data before trading

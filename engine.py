@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 Quotex Pro Trader — EEL + ASYNCIO STABLE v3.3 (COUNTDOWN FIX)
-✅ Hard Ping (get_balance) كل 60 ثانية
-✅ Timeout على get_realtime_price (5 ثوانٍ)
-✅ كشف "zombie connection" بعد 30 ثانية
-✅ Forced resubscription دورية كل 60 ثانية
-✅ أوقات استجابة أسرع: idle=30s, ping=60s
-✅ [جديد] SERVER_TIME_OFFSET بـ EMA smoothing — يمنع flutter
-✅ [جديد] Rate-limit على send_to_ui (max كل 500ms) — يمنع تعارض العدّاد
-✅ [جديد] candle_start_time ثابت في الـ payload — JS يحسب countdown محلياً
-✅ [جديد] asyncio.sleep(0.05) بدل 0.2 — أقل jitter
+[OK] Hard Ping (get_balance) كل 60 ثانية
+[OK] Timeout على get_realtime_price (5 ثوانٍ)
+[OK] كشف "zombie connection" بعد 30 ثانية
+[OK] Forced resubscription دورية كل 60 ثانية
+[OK] أوقات استجابة أسرع: idle=30s, ping=60s
+[OK] [جديد] SERVER_TIME_OFFSET بـ EMA smoothing — يمنع flutter
+[OK] [جديد] Rate-limit على send_to_ui (max كل 500ms) — يمنع تعارض العدّاد
+[OK] [جديد] candle_start_time ثابت في الـ payload — JS يحسب countdown محلياً
+[OK] [جديد] asyncio.sleep(0.05) بدل 0.2 — أقل jitter
 """
 import warnings
 warnings.filterwarnings("ignore", message=".*sklearn.utils.parallel.*")
@@ -30,10 +30,10 @@ from queue import Queue, Full
 from typing import Optional, Dict, List, Tuple
 from dotenv import load_dotenv
 
-# ✅ Load .env file
+# [OK] Load .env file
 load_dotenv()
 
-# ✅ Auto-login credentials from .env
+# [OK] Auto-login credentials from .env
 QUOTEX_EMAIL = os.getenv("QUOTEX_EMAIL")
 QUOTEX_PASSWORD = os.getenv("QUOTEX_PASSWORD")
 
@@ -42,7 +42,7 @@ if QUOTEX_EMAIL and QUOTEX_PASSWORD:
 else:
     print("[WARN] No .env credentials found")
 
-# ✅ SSL Setup
+# [OK] SSL Setup
 os.environ['SSL_CERT_FILE'] = certifi.where()
 os.environ['WEBSOCKET_CLIENT_CA_BUNDLE'] = certifi.where()
 
@@ -50,129 +50,124 @@ try:
     from pyquotex.stable_api import Quotex
     from pyquotex.utils.processor import process_candles
 except ImportError as e:
-    print(f"❌ Missing dependency: {e}")
+    print(f"[ERR] Missing dependency: {e}")
     print("Run: pip install git+https://github.com/cleitonleonel/pyquotex.git@master")
     sys.exit(1)
 
-try:
-    from ml_signals import EnsembleSignalGenerator
-except ImportError as e:
-    print(f"⚠️ ML signals not available: {e}")
-    EnsembleSignalGenerator = None
-
+# ML Signal Service (unified signal generation)
 try:
     from ml.serving.signal_service import MLSignalService
 except ImportError as e:
-    print(f"⚠️ ML signal service not available: {e}")
+    print(f"[WARN] ML signal service not available: {e}")
     MLSignalService = None
 
 try:
     from ml.trading.trading_session import BinaryOptionsTradingSession
 except ImportError as e:
-    print(f"⚠️ Trading session not available: {e}")
+    print(f"[WARN] Trading session not available: {e}")
     BinaryOptionsTradingSession = None
 
-# ✅ Critical imports with detailed error handling
+# [OK] Critical imports with detailed error handling
 CandleStore = None
 TimeframeAggregator = None
 
 try:
     from ml.data.candle_store import CandleStore
-    print("[OK] ✅ CandleStore imported successfully")
+    print("[OK] [OK] CandleStore imported successfully")
 except Exception as e:
-    print(f"⚠️ CandleStore import failed: {type(e).__name__}: {e}")
+    print(f"[WARN] CandleStore import failed: {type(e).__name__}: {e}")
     print(f"   → Falling back to in-memory candle aggregation")
     CandleStore = None
 
 try:
     from ml.data.timeframe_aggregator import TimeframeAggregator
-    print("[OK] ✅ TimeframeAggregator imported successfully")
+    print("[OK] [OK] TimeframeAggregator imported successfully")
 except Exception as e:
-    print(f"⚠️ TimeframeAggregator import failed: {type(e).__name__}: {e}")
+    print(f"[WARN] TimeframeAggregator import failed: {type(e).__name__}: {e}")
     TimeframeAggregator = None
 
 try:
     from ml.serving.async_signal_manager import AsyncSignalManager
 except ImportError as e:
-    print(f"⚠️ Async signal manager not available: {e}")
+    print(f"[WARN] Async signal manager not available: {e}")
     AsyncSignalManager = None
 
 try:
     from ml.data.candle_aggregator_bg import BackgroundCandleAggregator
-    print("[OK] ✅ BackgroundCandleAggregator imported successfully")
+    print("[OK] [OK] BackgroundCandleAggregator imported successfully")
 except Exception as e:
-    print(f"⚠️ BackgroundCandleAggregator import failed: {type(e).__name__}: {e}")
+    print(f"[WARN] BackgroundCandleAggregator import failed: {type(e).__name__}: {e}")
     BackgroundCandleAggregator = None
 
-# ✅ Phase H: Constraint Tracking & Automation
+# [OK] Phase H: Constraint Tracking & Automation
 try:
     from ml.trading.account_constraint_tracker import AccountConstraintTracker
-    print("[OK] ✅ AccountConstraintTracker imported successfully")
+    print("[OK] [OK] AccountConstraintTracker imported successfully")
 except ImportError as e:
-    print(f"⚠️ AccountConstraintTracker import failed: {e}")
+    print(f"[WARN] AccountConstraintTracker import failed: {e}")
     AccountConstraintTracker = None
 
 try:
     from ml.serving.websocket_health_monitor import WebSocketHealthMonitor
-    print("[OK] ✅ WebSocketHealthMonitor imported successfully")
+    print("[OK] [OK] WebSocketHealthMonitor imported successfully")
 except ImportError as e:
-    print(f"⚠️ WebSocketHealthMonitor import failed: {e}")
+    print(f"[WARN] WebSocketHealthMonitor import failed: {e}")
     WebSocketHealthMonitor = None
 
 try:
     from ml.trading.automated_trader import AutomatedTrader
-    print("[OK] ✅ AutomatedTrader imported successfully")
+    print("[OK] [OK] AutomatedTrader imported successfully")
 except ImportError as e:
-    print(f"⚠️ AutomatedTrader import failed: {e}")
+    print(f"[WARN] AutomatedTrader import failed: {e}")
     AutomatedTrader = None
 
 try:
     from ml.training.data_accumulation_tracker import DataAccumulationTracker
-    print("[OK] ✅ DataAccumulationTracker imported successfully")
+    print("[OK] [OK] DataAccumulationTracker imported successfully")
 except ImportError as e:
-    print(f"⚠️ DataAccumulationTracker import failed: {e}")
+    print(f"[WARN] DataAccumulationTracker import failed: {e}")
     DataAccumulationTracker = None
 
 try:
     from ml.serving.auto_trading_manager import AutoTradingManager
-    print("[OK] ✅ AutoTradingManager imported successfully")
+    print("[OK] [OK] AutoTradingManager imported successfully")
 except ImportError as e:
-    print(f"⚠️ AutoTradingManager import failed: {e}")
+    print(f"[WARN] AutoTradingManager import failed: {e}")
     AutoTradingManager = None
 
 try:
     from ml.trading.order_executor import OrderExecutor
-    print("[OK] ✅ OrderExecutor imported successfully")
+    print("[OK] [OK] OrderExecutor imported successfully")
 except ImportError as e:
-    print(f"⚠️ OrderExecutor import failed: {e}")
+    print(f"[WARN] OrderExecutor import failed: {e}")
     OrderExecutor = None
 
 try:
     from ml.trading.position_tracker import PositionTracker
-    print("[OK] ✅ PositionTracker imported successfully")
+    print("[OK] [OK] PositionTracker imported successfully")
 except ImportError as e:
-    print(f"⚠️ PositionTracker import failed: {e}")
+    print(f"[WARN] PositionTracker import failed: {e}")
     PositionTracker = None
 
 try:
     from ml.trading.position_monitor import PositionMonitor
-    print("[OK] ✅ PositionMonitor imported successfully")
+    print("[OK] [OK] PositionMonitor imported successfully")
 except ImportError as e:
-    print(f"⚠️ PositionMonitor import failed: {e}")
+    print(f"[WARN] PositionMonitor import failed: {e}")
     PositionMonitor = None
 
 try:
     import trading_config
-    print("[OK] ✅ Trading configuration module imported successfully")
+    print("[OK] [OK] Trading configuration module imported successfully")
 except ImportError as e:
-    print(f"⚠️ Trading configuration module import failed: {e}")
+    print(f"[WARN] Trading configuration module import failed: {e}")
     trading_config = None
 
 try:
     from ml.config import settings
-    print("[OK] ✅ ML config settings imported successfully")
+    print("[OK] [OK] ML config settings imported successfully")
 except ImportError as e:
-    print(f"⚠️ ML config settings import failed: {e}")
+    print(f"[WARN] ML config settings import failed: {e}")
     settings = None
 
 # ======================
@@ -199,7 +194,7 @@ async_thread = threading.Thread(target=start_async_engine, daemon=True, name="As
 async_thread.start()
 time.sleep(0.3)
 if ASYNC_LOOP is None:
-    print("❌ Failed to initialize Async Loop")
+    print("[ERR] Failed to initialize Async Loop")
     sys.exit(1)
 
 # ======================
@@ -219,7 +214,7 @@ def _schedule_startup_retrain():
             try:
                 candles = CANDLES.get(asset, {}).get("1m", [])
                 if len(candles) < 100:
-                    print(f"[{asset}] ⚠️  Only {len(candles)} candles, skipping retrain")
+                    print(f"[{asset}] [WARN]  Only {len(candles)} candles, skipping retrain")
                     continue
 
                 print(f"[{asset}] 🔄 Auto-retraining on {len(candles)} candles...")
@@ -228,7 +223,7 @@ def _schedule_startup_retrain():
                     ASYNC_LOOP
                 )
                 result = fut.result(timeout=120)
-                print(f"[{asset}] ✅ Auto-retrain complete: {result.get('status', 'done')}")
+                print(f"[{asset}] [OK] Auto-retrain complete: {result.get('status', 'done')}")
 
                 # Flush model cache so signal generation uses fresh models
                 if ML_SERVICE and hasattr(ML_SERVICE, 'registry'):
@@ -237,7 +232,7 @@ def _schedule_startup_retrain():
                         print(f"[{asset}] 🔄 Flushed model cache")
 
             except Exception as e:
-                print(f"[{asset}] ❌ Auto-retrain failed: {e}")
+                print(f"[{asset}] [ERR] Auto-retrain failed: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -246,7 +241,7 @@ def _schedule_startup_retrain():
 # ======================
 # UI Update Queue
 # ======================
-UI_QUEUE = Queue(maxsize=100)  # ✅ Increased from 50 to 100
+UI_QUEUE = Queue(maxsize=100)  # [OK] Increased from 50 to 100
 QUEUE_OVERFLOW_COUNT = 0
 QUEUE_LAST_OVERFLOW_LOG = 0
 
@@ -262,7 +257,7 @@ def ui_loop():
                 break
 
             update_count += 1
-            # ✅ Log every 10th update to avoid spam
+            # [OK] Log every 10th update to avoid spam
             if update_count % 10 == 0:
                 log(f"📨 UI_LOOP: Sending update #{update_count} ({payload['mode']}) to frontend", 2)
 
@@ -272,7 +267,7 @@ def ui_loop():
             QUEUE_OVERFLOW_COUNT = 0  # Reset on successful send
 
         except Exception as e:
-            log(f"❌ [UI_LOOP ERROR] Failed to send update: {type(e).__name__}: {e}", 1)
+            log(f"[ERR] [UI_LOOP ERROR] Failed to send update: {type(e).__name__}: {e}", 1)
             time.sleep(0.1)
 threading.Thread(target=ui_loop, daemon=True, name="UIUpdater").start()
 
@@ -287,8 +282,8 @@ IS_RECONNECTING = False
 RECONNECT_COOLDOWN = 30
 LAST_RECONNECT_TIME = 0
 
-# ML Signal Generators
-ENSEMBLE_GENERATOR = EnsembleSignalGenerator() if EnsembleSignalGenerator else None
+# ML Signal Generators (now consolidated to MLSignalService)
+# Removed: EnsembleSignalGenerator (deprecated stub)
 
 # Phase 2: Initialize trading session for money/risk management
 # Note: Will be re-initialized after Quotex login with actual demo balance
@@ -297,9 +292,9 @@ DEMO_BALANCE = 10000  # Will be updated from Quotex
 if BinaryOptionsTradingSession:
     try:
         TRADING_SESSION = BinaryOptionsTradingSession(starting_balance=DEMO_BALANCE)
-        print(f"✅ Trading session initialized: ${DEMO_BALANCE} account (will update from Quotex)")
+        print(f"[OK] Trading session initialized: ${DEMO_BALANCE} account (will update from Quotex)")
     except Exception as e:
-        print(f"⚠️ Failed to initialize trading session: {e}")
+        print(f"[WARN] Failed to initialize trading session: {e}")
 
 ML_SERVICE = MLSignalService(trading_session=TRADING_SESSION) if MLSignalService else None
 # ML_SERVICE now includes:
@@ -317,18 +312,18 @@ SIGNAL_MANAGER = None
 try:
     if ML_SERVICE and AsyncSignalManager:
         SIGNAL_MANAGER = AsyncSignalManager(ML_SERVICE)
-        print(f"✅ SIGNAL_MANAGER initialized: {SIGNAL_MANAGER}")
+        print(f"[OK] SIGNAL_MANAGER initialized: {SIGNAL_MANAGER}")
         log("🔗 AsyncSignalManager initialized at module load", 1)
     else:
-        print(f"⚠️ Cannot init: ML_SERVICE={ML_SERVICE is not None}, AsyncSignalManager={AsyncSignalManager is not None}")
-        log(f"⚠️ Cannot initialize AsyncSignalManager: ML_SERVICE={ML_SERVICE is not None}, AsyncSignalManager={AsyncSignalManager is not None}", 1)
+        print(f"[WARN] Cannot init: ML_SERVICE={ML_SERVICE is not None}, AsyncSignalManager={AsyncSignalManager is not None}")
+        log(f"[WARN] Cannot initialize AsyncSignalManager: ML_SERVICE={ML_SERVICE is not None}, AsyncSignalManager={AsyncSignalManager is not None}", 1)
 except Exception as e:
-    print(f"❌ SIGNAL_MANAGER init failed: {e}")
+    print(f"[ERR] SIGNAL_MANAGER init failed: {e}")
     import traceback
     traceback.print_exc()
     SIGNAL_MANAGER = None
 
-# ✅ Phase H: Initialize Constraint Tracking & Health Monitoring
+# [OK] Phase H: Initialize Constraint Tracking & Health Monitoring
 CONSTRAINT_TRACKER = None
 HEALTH_MONITOR = None
 ORDER_EXECUTOR = None
@@ -339,18 +334,18 @@ AUTOMATED_TRADER = None
 if AccountConstraintTracker:
     try:
         CONSTRAINT_TRACKER = AccountConstraintTracker()
-        print(f"✅ AccountConstraintTracker initialized")
+        print(f"[OK] AccountConstraintTracker initialized")
     except Exception as e:
-        print(f"⚠️ AccountConstraintTracker init failed: {e}")
+        print(f"[WARN] AccountConstraintTracker init failed: {e}")
 
 if WebSocketHealthMonitor:
     try:
         HEALTH_MONITOR = WebSocketHealthMonitor()
-        print(f"✅ WebSocketHealthMonitor initialized")
+        print(f"[OK] WebSocketHealthMonitor initialized")
     except Exception as e:
-        print(f"⚠️ WebSocketHealthMonitor init failed: {e}")
+        print(f"[WARN] WebSocketHealthMonitor init failed: {e}")
 
-# ✅ Phase I: Initialize Data Accumulation Tracker (for selected pairs only)
+# [OK] Phase I: Initialize Data Accumulation Tracker (for selected pairs only)
 if DataAccumulationTracker:
     try:
         from ml.config import settings
@@ -362,7 +357,7 @@ if DataAccumulationTracker:
             with open("selected_signal_pairs.json", "r") as f:
                 selected_pairs = json.load(f)
         except:
-            print("⚠️ Could not load selected_signal_pairs.json, using default pairs")
+            print("[WARN] Could not load selected_signal_pairs.json, using default pairs")
             selected_pairs = ["AUD/CAD (OTC)", "EUR/USD (OTC)", "USD/PKR (OTC)", "USD/INR (OTC)"]
 
         DATA_ACCUMULATOR = DataAccumulationTracker(
@@ -374,25 +369,25 @@ if DataAccumulationTracker:
         for pair in selected_pairs:
             DATA_ACCUMULATOR.register_subscription(pair, "1m")
 
-        print(f"✅ DataAccumulationTracker initialized")
+        print(f"[OK] DataAccumulationTracker initialized")
         print(f"   Target: {settings.data_accumulation_min_candles} candles per asset")
         print(f"   Tracking {len(selected_pairs)} pairs: {', '.join(selected_pairs)}")
     except Exception as e:
-        print(f"⚠️ DataAccumulationTracker init failed: {e}")
+        print(f"[WARN] DataAccumulationTracker init failed: {e}")
 
 if OrderExecutor:
     try:
         ORDER_EXECUTOR = OrderExecutor()
-        print(f"✅ OrderExecutor initialized")
+        print(f"[OK] OrderExecutor initialized")
     except Exception as e:
-        print(f"⚠️ OrderExecutor init failed: {e}")
+        print(f"[WARN] OrderExecutor init failed: {e}")
 
 if PositionTracker:
     try:
         POSITION_TRACKER = PositionTracker()
-        print(f"✅ PositionTracker initialized")
+        print(f"[OK] PositionTracker initialized")
     except Exception as e:
-        print(f"⚠️ PositionTracker init failed: {e}")
+        print(f"[WARN] PositionTracker init failed: {e}")
 
 if PositionMonitor and POSITION_TRACKER:
     try:
@@ -400,9 +395,9 @@ if PositionMonitor and POSITION_TRACKER:
             position_tracker=POSITION_TRACKER,
             check_interval=5.0
         )
-        print(f"✅ PositionMonitor initialized")
+        print(f"[OK] PositionMonitor initialized")
     except Exception as e:
-        print(f"⚠️ PositionMonitor init failed: {e}")
+        print(f"[WARN] PositionMonitor init failed: {e}")
 
 if AutomatedTrader and CONSTRAINT_TRACKER and HEALTH_MONITOR:
     try:
@@ -413,11 +408,11 @@ if AutomatedTrader and CONSTRAINT_TRACKER and HEALTH_MONITOR:
             position_tracker=POSITION_TRACKER,
             position_monitor=POSITION_MONITOR
         )
-        print(f"✅ AutomatedTrader initialized (demo mode enabled)")
+        print(f"[OK] AutomatedTrader initialized (demo mode enabled)")
     except Exception as e:
-        print(f"⚠️ AutomatedTrader init failed: {e}")
+        print(f"[WARN] AutomatedTrader init failed: {e}")
 
-# ✅ Phase H: Initialize Auto Trading Manager (loads selected pairs)
+# [OK] Phase H: Initialize Auto Trading Manager (loads selected pairs)
 AUTO_TRADING_MANAGER = None
 if AutoTradingManager and AUTOMATED_TRADER and CONSTRAINT_TRACKER and HEALTH_MONITOR:
     try:
@@ -427,9 +422,9 @@ if AutoTradingManager and AUTOMATED_TRADER and CONSTRAINT_TRACKER and HEALTH_MON
             automated_trader=AUTOMATED_TRADER,
             pairs_file="selected_signal_pairs.json"
         )
-        print(f"✅ AutoTradingManager initialized with selected pairs")
+        print(f"[OK] AutoTradingManager initialized with selected pairs")
     except Exception as e:
-        print(f"⚠️ AutoTradingManager init failed: {e}")
+        print(f"[WARN] AutoTradingManager init failed: {e}")
         AUTO_TRADING_MANAGER = None
 
 # BUG FIX #13: Signal Polling Loop
@@ -485,7 +480,7 @@ async def _poll_and_execute_signals():
                 from ml.config import settings
                 min_conf = settings.min_signal_confidence
                 if signal_data['confidence'] < min_conf:
-                    print(f"⚠️ SIGNAL REJECTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.2f} (below threshold {min_conf})", file=sys.stderr)
+                    print(f"[WARN] SIGNAL REJECTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.2f} (below threshold {min_conf})", file=sys.stderr)
                     continue
 
                 # Create TradeSignal from cached signal
@@ -504,9 +499,9 @@ async def _poll_and_execute_signals():
 
                 # Log successful execution
                 if result.get('executed'):
-                    print(f"✅ SIGNAL EXECUTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.1%}")
+                    print(f"[OK] SIGNAL EXECUTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.1%}")
 
-                    # ✅ [NEW] Store signal info for later feedback to training
+                    # [OK] [NEW] Store signal info for later feedback to training
                     # When position closes, we'll report this trade outcome to ML_SERVICE
                     trade = result.get('trade')
                     if trade and ML_SERVICE:
@@ -527,17 +522,17 @@ async def _poll_and_execute_signals():
                             )
 
                 elif result.get('rejected_reason'):
-                    print(f"⚠️ SIGNAL REJECTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.2f} ({result['rejected_reason']})", file=sys.stderr)
+                    print(f"[WARN] SIGNAL REJECTED: {pair_name} {signal_data['side']} @ {signal_data['confidence']:.2f} ({result['rejected_reason']})", file=sys.stderr)
 
             except Exception as e:
                 import traceback
-                print(f"⚠️ Error processing signal for {pair_name}: {e}", file=sys.stderr)
+                print(f"[WARN] Error processing signal for {pair_name}: {e}", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
                 continue
 
     except Exception as e:
         import traceback
-        print(f"❌ Signal polling error: {e}", file=sys.stderr)
+        print(f"[ERR] Signal polling error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
 
 async def signal_polling_loop():
@@ -554,16 +549,16 @@ async def signal_polling_loop():
         print("⏹️  Signal polling loop cancelled")
         SIGNAL_POLLING_RUNNING = False
     except Exception as e:
-        print(f"❌ Signal polling loop error: {e}", file=sys.stderr)
+        print(f"[ERR] Signal polling loop error: {e}", file=sys.stderr)
         SIGNAL_POLLING_RUNNING = False
 
-# ✅ تحسين #5: أوقات محسّنة للاستقرار
-TICK_IDLE_THRESHOLD   = 90   # ✅ Increased from 30s to reduce false reconnects
-PING_INTERVAL         = 90   # ✅ Increased from 60s
-RESUB_INTERVAL        = 60   # ✅ Increased from 30s
-HARD_PING_INTERVAL    = 60   # ✅ Kept stable
-EMPTY_TICK_RESUB_THRESHOLD = 60  # ✅ FIXED: Raised from 30 to reduce false resubscriptions (3s window)
-MAX_CONSECUTIVE_EMPTY = 200  # ✅ FIXED: Raised from 100 for better stability (10s grace period)
+# [OK] تحسين #5: أوقات محسّنة للاستقرار
+TICK_IDLE_THRESHOLD   = 90   # [OK] Increased from 30s to reduce false reconnects
+PING_INTERVAL         = 90   # [OK] Increased from 60s
+RESUB_INTERVAL        = 60   # [OK] Increased from 30s
+HARD_PING_INTERVAL    = 60   # [OK] Kept stable
+EMPTY_TICK_RESUB_THRESHOLD = 60  # [OK] FIXED: Raised from 30 to reduce false resubscriptions (3s window)
+MAX_CONSECUTIVE_EMPTY = 200  # [OK] FIXED: Raised from 100 for better stability (10s grace period)
 
 ASSET_DISPLAY_MAP: Dict[str, str] = {}
 forex_assets = {
@@ -719,14 +714,14 @@ def load_selected_pairs() -> List[str]:
             with open(SELECTED_PAIRS_FILE, 'r', encoding='utf-8') as f:
                 pairs = json.load(f)
                 if isinstance(pairs, list) and pairs:
-                    print(f"✅ Loaded {len(pairs)} saved signal pairs: {pairs}")
+                    print(f"[OK] Loaded {len(pairs)} saved signal pairs: {pairs}")
                     return pairs
                 else:
-                    print(f"⚠️ File exists but is empty or invalid JSON")
+                    print(f"[WARN] File exists but is empty or invalid JSON")
         else:
-            print(f"⚠️ File not found: {abs_path}")
+            print(f"[WARN] File not found: {abs_path}")
     except Exception as e:
-        print(f"⚠️ Failed to load selected pairs: {e}")
+        print(f"[WARN] Failed to load selected pairs: {e}")
         import traceback
         traceback.print_exc()
     print(f"ℹ️ Using default {len(DEFAULT_SIGNAL_PAIRS)} pairs: {DEFAULT_SIGNAL_PAIRS}")
@@ -737,12 +732,12 @@ def save_selected_pairs(pairs: List[str]) -> bool:
     try:
         with open(SELECTED_PAIRS_FILE, 'w', encoding='utf-8') as f:
             json.dump(pairs, f, indent=2)
-        print(f"✅ Saved {len(pairs)} signal pairs to {SELECTED_PAIRS_FILE}: {pairs}")
-        log(f"✅ Saved {len(pairs)} signal pairs", 2)
+        print(f"[OK] Saved {len(pairs)} signal pairs to {SELECTED_PAIRS_FILE}: {pairs}")
+        log(f"[OK] Saved {len(pairs)} signal pairs", 2)
         return True
     except Exception as e:
-        print(f"❌ Failed to save selected pairs: {e}")
-        log(f"⚠️ Failed to save selected pairs: {e}", 2)
+        print(f"[ERR] Failed to save selected pairs: {e}")
+        log(f"[WARN] Failed to save selected pairs: {e}", 2)
         return False
 
 SIGNAL_PAIRS = load_selected_pairs()
@@ -831,18 +826,18 @@ async def full_reconnect():
         CLIENT = Quotex(email=SAVED_EMAIL, password=SAVED_PASSWORD, host="qxbroker.com", lang="en")
         check, reason = await CLIENT.connect()
         if not check:
-            log(f"❌ Re-login failed: {reason}", 1)
+            log(f"[ERR] Re-login failed: {reason}", 1)
             return False
 
         try:
             await CLIENT.change_account("PRACTICE")
         except Exception as e:
-            log(f"⚠️ Failed to switch account on reconnect: {e}", 1)
+            log(f"[WARN] Failed to switch account on reconnect: {e}", 1)
 
         try:
             await CLIENT.get_all_assets()
         except Exception as e:
-            log(f"⚠️ Failed to load assets on reconnect: {e}", 1)
+            log(f"[WARN] Failed to load assets on reconnect: {e}", 1)
 
         ASSETS_LOADED = True
         LOGIN_SUCCESS = True
@@ -853,7 +848,7 @@ async def full_reconnect():
         global ORDER_EXECUTOR
         if ORDER_EXECUTOR and CLIENT:
             ORDER_EXECUTOR.client = CLIENT
-            log("✅ ORDER_EXECUTOR wired to Quotex client", 1)
+            log("[OK] ORDER_EXECUTOR wired to Quotex client", 1)
 
         start_background_task("heartbeat", realtime_heartbeat())
         start_background_task("market_ping", market_activity_ping())
@@ -865,24 +860,24 @@ async def full_reconnect():
         if BackgroundCandleAggregator and CANDLE_STORE and not BG_AGGREGATOR:
             BG_AGGREGATOR = BackgroundCandleAggregator(CANDLE_STORE)
             start_background_task("bg_candle_aggregator", BG_AGGREGATOR.start())
-            log("✅ Background candle aggregator restarted", 1)
+            log("[OK] Background candle aggregator restarted", 1)
 
-        log("✅ Re-login successful", 1)
+        log("[OK] Re-login successful", 1)
         return True
     except Exception as e:
-        log(f"❌ Reconnection error: {e}", 1)
+        log(f"[ERR] Reconnection error: {e}", 1)
         return False
     finally:
         IS_RECONNECTING = False
-        # ✅ Restart streaming AFTER clearing IS_RECONNECTING flag
+        # [OK] Restart streaming AFTER clearing IS_RECONNECTING flag
         if CHART_OPENED:
             try:
                 await start_streaming(CURRENT_ASSET)
             except Exception as e:
-                log(f"⚠️ Failed to restart streaming after reconnect: {e}", 1)
+                log(f"[WARN] Failed to restart streaming after reconnect: {e}", 1)
 
 # ======================
-# ✅ تحسين #1: Hard Ping بـ get_balance
+# [OK] تحسين #1: Hard Ping بـ get_balance
 # ======================
 async def get_account_balances() -> Dict[str, float]:
     """Get both real and demo account balances from Quotex API.
@@ -921,7 +916,7 @@ async def get_account_balances() -> Dict[str, float]:
             return result
 
         # Fallback: Use known balance from trading session or DEMO_BALANCE constant
-        log("⚠️ account_balance not ready, using known demo balance", 2)
+        log("[WARN] account_balance not ready, using known demo balance", 2)
 
         global DEMO_BALANCE
         if current_mode == 'REAL':
@@ -938,7 +933,7 @@ async def get_account_balances() -> Dict[str, float]:
 
     except Exception as e:
         import traceback
-        log(f"⚠️ Failed to get account balances: {type(e).__name__}: {e}", 1)
+        log(f"[WARN] Failed to get account balances: {type(e).__name__}: {e}", 1)
         traceback.print_exc()
         return {
             'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN',
@@ -946,7 +941,7 @@ async def get_account_balances() -> Dict[str, float]:
         }
 
 
-# ✅ Phase H: Update constraints with latest account data
+# [OK] Phase H: Update constraints with latest account data
 async def update_constraints():
     """Update constraint tracker with latest WebSocket account data."""
     if not CONSTRAINT_TRACKER or not CLIENT or not CLIENT.api:
@@ -964,7 +959,7 @@ async def update_constraints():
                 account_is_demo=account_is_demo
             )
     except Exception as e:
-        log(f"⚠️ Failed to update constraints: {e}", 2)
+        log(f"[WARN] Failed to update constraints: {e}", 2)
 
 
 async def hard_ping_loop():
@@ -979,31 +974,31 @@ async def hard_ping_loop():
                 log(f"💓 Hard ping OK — Real: ${balances['real']:.2f} Demo: ${balances['demo']:.2f} ({balances['current_mode']})", 2)
                 update_tick_time()
 
-                # ✅ Phase H: Update constraints and health monitoring with real balance
+                # [OK] Phase H: Update constraints and health monitoring with real balance
                 await update_constraints()
 
                 # Log constraint status periodically
                 if CONSTRAINT_TRACKER:
                     status = CONSTRAINT_TRACKER.get_status()
                     if status.get('constraint_status') != 'OK':
-                        log(f"⚠️  Constraint Alert: {status.get('halt_reason', 'Unknown')}", 1)
+                        log(f"[WARN]  Constraint Alert: {status.get('halt_reason', 'Unknown')}", 1)
         except asyncio.CancelledError:
             break
         except asyncio.TimeoutError:
-            log("⚠️ Hard ping timeout — triggering reconnect", 1)
+            log("[WARN] Hard ping timeout — triggering reconnect", 1)
             if HEALTH_MONITOR:
                 HEALTH_MONITOR.record_disconnection()
             asyncio.create_task(full_reconnect())
         except (ConnectionError, OSError) as e:
-            log(f"⚠️ Hard ping connection error: {e}", 1)
+            log(f"[WARN] Hard ping connection error: {e}", 1)
             if HEALTH_MONITOR:
                 HEALTH_MONITOR.record_disconnection()
             asyncio.create_task(full_reconnect())
         except Exception as e:
-            log(f"⚠️ Hard ping unexpected error: {type(e).__name__}: {e}", 2)
+            log(f"[WARN] Hard ping unexpected error: {type(e).__name__}: {e}", 2)
 
 # ======================
-# ✅ تحسين #4: Forced Resubscription دورية
+# [OK] تحسين #4: Forced Resubscription دورية
 # ======================
 async def forced_resubscription():
     while True:
@@ -1021,9 +1016,9 @@ async def forced_resubscription():
         except asyncio.CancelledError:
             break
         except (ConnectionError, OSError, TimeoutError) as e:
-            log(f"⚠️ Resub error: {type(e).__name__}: {e}", 1)
+            log(f"[WARN] Resub error: {type(e).__name__}: {e}", 1)
         except Exception as e:
-            log(f"⚠️ Resub error: {type(e).__name__}: {e}", 2)
+            log(f"[WARN] Resub error: {type(e).__name__}: {e}", 2)
 
 # ======================
 # Background Tasks
@@ -1031,10 +1026,10 @@ async def forced_resubscription():
 async def realtime_heartbeat():
     """Monitor connection health - detect dead connections by checking if data flows"""
     while True:
-        await asyncio.sleep(90)  # ✅ Check every 90 seconds (increased to reduce false disconnects)
+        await asyncio.sleep(90)  # [OK] Check every 90 seconds (increased to reduce false disconnects)
         try:
             if CLIENT:
-                # ✅ CRITICAL FIX: Check if data is actually flowing
+                # [OK] CRITICAL FIX: Check if data is actually flowing
                 time_since_tick = time.time() - LAST_TICK_TIME
 
                 # If no data for 35+ seconds, connection is definitely dead
@@ -1043,12 +1038,12 @@ async def realtime_heartbeat():
                     log(f"🔄 Forcing full reconnection NOW", 1)
                     asyncio.create_task(full_reconnect())
                 elif not is_websocket_connected():
-                    log("⚠️ Heartbeat: WebSocket disconnected, reconnecting...", 1)
+                    log("[WARN] Heartbeat: WebSocket disconnected, reconnecting...", 1)
                     asyncio.create_task(full_reconnect())
         except asyncio.CancelledError:
             break
         except Exception as e:
-            log(f"⚠️ Heartbeat error: {type(e).__name__}", 2)
+            log(f"[WARN] Heartbeat error: {type(e).__name__}", 2)
 
 async def market_activity_ping():
     while True:
@@ -1063,9 +1058,9 @@ async def market_activity_ping():
         except asyncio.CancelledError:
             break
         except (ConnectionError, OSError) as e:
-            log(f"⚠️ Market ping connection error: {type(e).__name__}", 2)
+            log(f"[WARN] Market ping connection error: {type(e).__name__}", 2)
         except Exception as e:
-            log(f"⚠️ Market ping error: {type(e).__name__}", 2)
+            log(f"[WARN] Market ping error: {type(e).__name__}", 2)
 
 def price_sleep_watcher():
     while True:
@@ -1095,15 +1090,15 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
             l = float(c["low"])
             cl = float(c["close"])
 
-            # ✅ Validation checks to prevent corrupted candles
+            # [OK] Validation checks to prevent corrupted candles
             if not (o > 0 and h > 0 and l > 0 and cl > 0):
-                log(f"⚠️ Candle has non-positive price: {c}", 2)
+                log(f"[WARN] Candle has non-positive price: {c}", 2)
                 continue
             if h < l:
-                log(f"⚠️ Candle inverted: high ({h}) < low ({l})", 2)
+                log(f"[WARN] Candle inverted: high ({h}) < low ({l})", 2)
                 continue
             if o > h or o < l or cl > h or cl < l:
-                log(f"⚠️ Candle OHLC out of bounds: O={o} H={h} L={l} C={cl}", 2)
+                log(f"[WARN] Candle OHLC out of bounds: O={o} H={h} L={l} C={cl}", 2)
                 continue
             if ts <= 0:
                 continue
@@ -1114,7 +1109,7 @@ def process_candle_data(raw_candles: List[dict], period: int) -> List[dict]:
                 "low": l, "close": cl
             })
         except (ValueError, TypeError) as e:
-            log(f"⚠️ Candle parse error: {e}", 2)
+            log(f"[WARN] Candle parse error: {e}", 2)
             continue
     formatted.sort(key=lambda x: x["time"])
     return formatted
@@ -1136,7 +1131,7 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int, volume: flo
                 if frame == "1m" and TIMEFRAME_AGGREGATOR:
                     TIMEFRAME_AGGREGATOR.aggregate_to_timeframes(asset, candle_copy)
 
-            # ✅ Also populate fallback in-memory aggregator
+            # [OK] Also populate fallback in-memory aggregator
             if frame == "1m":
                 FALLBACK_AGGREGATOR.aggregate_1m_to_timeframes(asset, candle_copy)
 
@@ -1155,7 +1150,7 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int, volume: flo
             if len(CANDLES[asset][frame]) > 200:
                 CANDLES[asset][frame] = CANDLES[asset][frame][-200:]
 
-            # ✅ [NEW] Fire event callback for real-time signal generation
+            # [OK] [NEW] Fire event callback for real-time signal generation
             # When a new candle completes, notify subscribers immediately
             try:
                 from ml.serving.signal_callback_manager import get_signal_callback_manager
@@ -1165,7 +1160,7 @@ def update_candle(asset: str, frame: str, price: float, ts_sec: int, volume: flo
                     ASYNC_LOOP
                 )
             except Exception as e:
-                log(f"⚠️ Error firing candle event for {asset}/{frame}: {e}", 2)
+                log(f"[WARN] Error firing candle event for {asset}/{frame}: {e}", 2)
 
         CURRENT_CANDLE.setdefault(asset, {})[frame] = {
             "time": start, "open": price, "high": price, "low": price, "close": price, "volume": volume
@@ -1221,7 +1216,7 @@ def send_to_ui(asset: str, timeframe: str, force: bool = False, full: bool = Fal
     """
     global LAST_UI_SEND, QUEUE_OVERFLOW_COUNT, QUEUE_LAST_OVERFLOW_LOG
     now = time.time()
-    # ✅ FIXED: Reduced rate limit from 0.5s to 0.3s to avoid false connection timeouts
+    # [OK] FIXED: Reduced rate limit from 0.5s to 0.3s to avoid false connection timeouts
     # Frontend timeout is 10s, so we need updates at least every 5-8s
     # With 0.3s rate limit: 10s / 0.3s = ~33 potential updates, very safe margin
     if not (full or force) and (now - LAST_UI_SEND) < 0.3:
@@ -1261,10 +1256,10 @@ def send_to_ui(asset: str, timeframe: str, force: bool = False, full: bool = Fal
         UI_QUEUE.put_nowait(payload)
         QUEUE_OVERFLOW_COUNT = 0
 
-        # ✅ Log every 10 successful sends to avoid spam
+        # [OK] Log every 10 successful sends to avoid spam
         if int(time.time() * 10) % 10 == 0:  # ~Every 10th call
             price = payload["candles"][-1]["close"] if payload["candles"] else 0
-            log(f"✅ SEND_TO_UI: Queued {mode} for {asset}/{timeframe} @ {price}", 2)
+            log(f"[OK] SEND_TO_UI: Queued {mode} for {asset}/{timeframe} @ {price}", 2)
 
         return True
     except Full:
@@ -1295,15 +1290,15 @@ async def realtime_price_loop(asset_display: str):
                     period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
                     await CLIENT.start_realtime_price(internal, period)
                     update_subscription_time()
-                    log("✅ Zombie cured via resubscription", 1)
+                    log("[OK] Zombie cured via resubscription", 1)
                     last_resub_time = time.time()
                 except Exception as ze:
-                    log(f"⚠️ Zombie resub failed: {ze}", 2)
+                    log(f"[WARN] Zombie resub failed: {ze}", 2)
                     asyncio.create_task(full_reconnect())
                     break
 
             if errs >= 5 and not is_websocket_connected():
-                log(f"⚠️ WebSocket disconnected after {errs} errors, attempting recovery...", 1)
+                log(f"[WARN] WebSocket disconnected after {errs} errors, attempting recovery...", 1)
                 await CLIENT.start_realtime_price(internal, TIMEFRAMES.get(CURRENT_TIMEFRAME, 60))
                 update_subscription_time()
                 last_resub_time = time.time()
@@ -1315,12 +1310,12 @@ async def realtime_price_loop(asset_display: str):
                     timeout=5
                 )
             except asyncio.TimeoutError:
-                log(f"⏱️ get_realtime_price timeout ({asset_display})", 2)
+                log(f"[TIME] get_realtime_price timeout ({asset_display})", 2)
                 errs += 1
                 consecutive_empty += 1
                 # FIXED: More aggressive recovery - try resub after just 3-4 timeouts (2 seconds)
                 if consecutive_empty >= 3 and (time.time() - last_resub_time) > 2:
-                    log(f"⚠️ {consecutive_empty} timeouts detected — attempting immediate recovery", 1)
+                    log(f"[WARN] {consecutive_empty} timeouts detected — attempting immediate recovery", 1)
                     try:
                         period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
                         await CLIENT.start_realtime_price(internal, period)
@@ -1329,7 +1324,7 @@ async def realtime_price_loop(asset_display: str):
                         consecutive_empty = 0
                         errs = 0
                     except Exception as resub_err:
-                        log(f"❌ Recovery failed: {resub_err}, triggering full reconnect", 1)
+                        log(f"[ERR] Recovery failed: {resub_err}, triggering full reconnect", 1)
                         asyncio.create_task(full_reconnect())
                         break
                 await asyncio.sleep(0.1)  # FIXED: Reduced from 0.5s for faster retries
@@ -1356,21 +1351,21 @@ async def realtime_price_loop(asset_display: str):
                     # Only send UI updates for the active/viewed asset
                     if active:
                         send_to_ui(asset_display, frame)
-                        # ✅ FIXED: Log every successful update for debugging
+                        # [OK] FIXED: Log every successful update for debugging
                         if errs > 0 or consecutive_empty > 0:
-                            log(f"✅ {asset_display}: Data flowing (recovered from {errs}e/{consecutive_empty}empty)", 2)
+                            log(f"[OK] {asset_display}: Data flowing (recovered from {errs}e/{consecutive_empty}empty)", 2)
                     errs = 0
                     consecutive_empty = 0
                 else:
                     consecutive_empty += 1
-                    log(f"⚠️ {asset_display}: Invalid price/ts ({price}/{ts})", 2)
+                    log(f"[WARN] {asset_display}: Invalid price/ts ({price}/{ts})", 2)
             else:
                 consecutive_empty += 1
-                log(f"⚠️ {asset_display}: Empty data received", 2)
+                log(f"[WARN] {asset_display}: Empty data received", 2)
 
             if consecutive_empty >= EMPTY_TICK_RESUB_THRESHOLD:
-                if (time.time() - last_resub_time) > 15:  # ✅ Exponential backoff: wait 15s before resub
-                    log(f"⚠️ {consecutive_empty} empty ticks — forcing resub (backoff applied). Broker may be unstable.", 1)
+                if (time.time() - last_resub_time) > 15:  # [OK] Exponential backoff: wait 15s before resub
+                    log(f"[WARN] {consecutive_empty} empty ticks — forcing resub (backoff applied). Broker may be unstable.", 1)
                     try:
                         period = TIMEFRAMES.get(CURRENT_TIMEFRAME, 60)
                         await CLIENT.start_realtime_price(internal, period)
@@ -1378,11 +1373,11 @@ async def realtime_price_loop(asset_display: str):
                         last_resub_time = time.time()
                         consecutive_empty = 0
                     except Exception as e:
-                        log(f"❌ Resubscription failed: {e} — triggering full reconnect", 1)
+                        log(f"[ERR] Resubscription failed: {e} — triggering full reconnect", 1)
                         asyncio.create_task(full_reconnect())
                         break
                 elif consecutive_empty >= MAX_CONSECUTIVE_EMPTY:
-                    log(f"❌ {consecutive_empty} empty ticks (max reached) — broker unresponsive, full reconnect needed", 1)
+                    log(f"[ERR] {consecutive_empty} empty ticks (max reached) — broker unresponsive, full reconnect needed", 1)
                     asyncio.create_task(full_reconnect())
                     break
 
@@ -1392,7 +1387,7 @@ async def realtime_price_loop(asset_display: str):
         log(f"⏹️ Loop stopped: {asset_display}", 2)
     except Exception as e:
         errs += 1
-        log(f"⚠️ Loop error ({asset_display}): {e}", 1)
+        log(f"[WARN] Loop error ({asset_display}): {e}", 1)
         if errs >= 15:
             asyncio.create_task(full_reconnect())
     finally:
@@ -1416,7 +1411,7 @@ async def load_timeframe_data(asset: str, tf: str, period: int) -> List[dict]:
                     CANDLES.setdefault(asset, {})[tf] = db_candles
                     return db_candles
             except Exception as e:
-                log(f"⚠️ Database query failed for {asset}/{tf}: {e}", 2)
+                log(f"[WARN] Database query failed for {asset}/{tf}: {e}", 2)
 
         # Try fallback in-memory aggregator
         fallback_candles = FALLBACK_AGGREGATOR.get_candles(asset, tf, limit=199)
@@ -1425,7 +1420,7 @@ async def load_timeframe_data(asset: str, tf: str, period: int) -> List[dict]:
             return fallback_candles
 
         # If no aggregated data available yet, return empty (will stream real-time)
-        log(f"⚠️ No aggregated data for {asset}/{tf}, waiting for real-time stream", 2)
+        log(f"[WARN] No aggregated data for {asset}/{tf}, waiting for real-time stream", 2)
         return []
 
     # For standard API timeframes, hit Quotex
@@ -1436,7 +1431,7 @@ async def load_timeframe_data(asset: str, tf: str, period: int) -> List[dict]:
         CANDLES.setdefault(asset, {})[tf] = loaded[-199:]
         return loaded[-199:]
     except Exception as e:
-        log(f"⚠️ Failed to load {tf} data for {asset}: {e}", 2)
+        log(f"[WARN] Failed to load {tf} data for {asset}: {e}", 2)
         return []
 
 async def chart_opened_loader(asset: str):
@@ -1514,18 +1509,18 @@ async def chart_opened_loader(asset: str):
                     except asyncio.TimeoutError:
                         consecutive_timeouts += 1
                         if consecutive_timeouts >= 5:
-                            log(f"⚠️ {pair_display}: Multiple timeouts, reconnecting", 2)
+                            log(f"[WARN] {pair_display}: Multiple timeouts, reconnecting", 2)
                             break
                         await asyncio.sleep(0.2)
                     except Exception as e:
-                        log(f"⚠️ {pair_display}: Streaming error: {e}", 2)
+                        log(f"[WARN] {pair_display}: Streaming error: {e}", 2)
                         break
 
                 await asyncio.sleep(3)  # Brief wait before reconnect
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                log(f"⚠️ {pair_display}: Task error: {e}", 2)
+                log(f"[WARN] {pair_display}: Task error: {e}", 2)
                 await asyncio.sleep(10)
 
     # Start streaming task for each non-active signal pair
@@ -1566,7 +1561,7 @@ async def connect_with_retry(attempts=5) -> Tuple[bool, str]:
             if i < attempts:
                 await asyncio.sleep(2)
         except Exception as e:
-            log(f"⚠️ Attempt {i} failed: {e}", 2)
+            log(f"[WARN] Attempt {i} failed: {e}", 2)
             if i < attempts:
                 await asyncio.sleep(2)
     return False, "Connection failed"
@@ -1582,20 +1577,20 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
     try:
         await CLIENT.change_account("PRACTICE")
     except Exception as e:
-        log(f"❌ Failed to switch to PRACTICE account: {e}", 1)
+        log(f"[ERR] Failed to switch to PRACTICE account: {e}", 1)
         return False, f"Account switch failed: {e}"
 
     # Initialize demo balance (triggers WebSocket account_balance population)
     try:
         result = await asyncio.wait_for(CLIENT.edit_practice_balance(10000), timeout=2)
-        log(f"✅ Demo balance initialized: {result}", 1)
+        log(f"[OK] Demo balance initialized: {result}", 1)
     except Exception as e:
-        log(f"⚠️ Failed to initialize demo balance (non-fatal): {e}", 2)
+        log(f"[WARN] Failed to initialize demo balance (non-fatal): {e}", 2)
 
     try:
         await CLIENT.get_all_assets()
     except Exception as e:
-        log(f"⚠️ Failed to load assets (non-fatal): {e}", 1)
+        log(f"[WARN] Failed to load assets (non-fatal): {e}", 1)
         # Continue anyway; assets may load later
 
     ASSETS_LOADED = LOGIN_SUCCESS = True
@@ -1604,7 +1599,7 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
     # Wire Quotex client to order executor
     if ORDER_EXECUTOR and CLIENT:
         ORDER_EXECUTOR.client = CLIENT
-        log("✅ ORDER_EXECUTOR wired to Quotex client", 1)
+        log("[OK] ORDER_EXECUTOR wired to Quotex client", 1)
 
     start_background_task("heartbeat", realtime_heartbeat())
     start_background_task("market_ping", market_activity_ping())
@@ -1619,24 +1614,24 @@ async def connect_to_quotex(email: str, password: str) -> Tuple[bool, str]:
             demo_bal = account_balance.get('demoBalance', 10000)
             DEMO_BALANCE = demo_bal
             TRADING_SESSION.update_balance(demo_bal)
-            log(f"✅ Trading session updated: ${demo_bal} from Quotex demo account", 1)
+            log(f"[OK] Trading session updated: ${demo_bal} from Quotex demo account", 1)
         except Exception as e:
-            log(f"⚠️ Failed to sync trading session balance: {e}", 2)
+            log(f"[WARN] Failed to sync trading session balance: {e}", 2)
 
     # Initialize background candle aggregator for selected pairs
     global BG_AGGREGATOR
     if BackgroundCandleAggregator and CANDLE_STORE and not BG_AGGREGATOR:
         BG_AGGREGATOR = BackgroundCandleAggregator(CANDLE_STORE)
         start_background_task("bg_candle_aggregator", BG_AGGREGATOR.start())
-        log("✅ Background candle aggregator started", 1)
+        log("[OK] Background candle aggregator started", 1)
 
-    log("✅ Login successful", 1)
+    log("[OK] Login successful", 1)
     return True, ""
 
 async def start_streaming(asset: str):
     global CURRENT_ASSET, BACKGROUND_LOADER_TASK
     if not CLIENT or not CLIENT.api:
-        log(f"⚠️ Cannot start streaming: CLIENT not ready", 1)
+        log(f"[WARN] Cannot start streaming: CLIENT not ready", 1)
         return
 
     try:
@@ -1668,10 +1663,10 @@ async def start_streaming(asset: str):
                 try:
                     await CLIENT.start_realtime_price(internal, period)
                     update_subscription_time()
-                    log(f"✅ Streaming started: {asset}", 1)
+                    log(f"[OK] Streaming started: {asset}", 1)
                     break
                 except Exception as e:
-                    log(f"⚠️ start_realtime_price attempt {attempt+1}/3 failed: {e}", 1)
+                    log(f"[WARN] start_realtime_price attempt {attempt+1}/3 failed: {e}", 1)
                     if attempt < 2:
                         await asyncio.sleep(1)
 
@@ -1683,9 +1678,9 @@ async def start_streaming(asset: str):
         # Start signal generation for this asset
         log(f"📊 Starting signal generation for {asset}...", 1)
         _start_signal_generation(asset, CURRENT_TIMEFRAME)
-        log(f"✅ Streaming fully initialized for {asset}", 1)
+        log(f"[OK] Streaming fully initialized for {asset}", 1)
     except Exception as e:
-        log(f"❌ start_streaming error: {e}", 1)
+        log(f"[ERR] start_streaming error: {e}", 1)
         raise
 
 # ======================
@@ -1752,7 +1747,7 @@ def _start_signal_generation(asset: str, timeframe: str = "1m") -> None:
     global SIGNAL_MANAGER, CANDLE_STORE
 
     if not SIGNAL_MANAGER:
-        log(f"⚠️ Cannot start signals for {asset}: SIGNAL_MANAGER not initialized", 1)
+        log(f"[WARN] Cannot start signals for {asset}: SIGNAL_MANAGER not initialized", 1)
         return
 
     # Check if signal thread already running for this asset
@@ -1783,15 +1778,15 @@ def _start_signal_generation(asset: str, timeframe: str = "1m") -> None:
         SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_for_asset, interval_seconds=10.0)
         log(f"🔗 Signal generation started for {asset} {timeframe}", 1)
     except Exception as e:
-        log(f"⚠️ Failed to start signals for {asset}: {e}", 1)
+        log(f"[WARN] Failed to start signals for {asset}: {e}", 1)
 
 @eel.expose
 def change_asset(asset):
     if not asset or not isinstance(asset, str):
-        log(f"❌ Invalid asset: {asset}", 1)
+        log(f"[ERR] Invalid asset: {asset}", 1)
         return
     if asset not in ASSET_DISPLAY_MAP.values():
-        log(f"❌ Unknown asset: {asset}", 1)
+        log(f"[ERR] Unknown asset: {asset}", 1)
         return
     def run():
         try:
@@ -1799,14 +1794,14 @@ def change_asset(asset):
             # Start signal generation for this asset (Phase B)
             _start_signal_generation(asset, "1m")
         except Exception as e:
-            log(f"⚠️ Asset change failed: {e}", 1)
+            log(f"[WARN] Asset change failed: {e}", 1)
     threading.Thread(target=run, daemon=True).start()
 
 @eel.expose
 def change_timeframe(tf):
     global CURRENT_TIMEFRAME
     if not tf or tf not in TIMEFRAMES:
-        log(f"❌ Invalid timeframe: {tf}", 1)
+        log(f"[ERR] Invalid timeframe: {tf}", 1)
         return
     with STATE_LOCK:
         CURRENT_TIMEFRAME = tf
@@ -1823,7 +1818,7 @@ def change_timeframe(tf):
             ).result(timeout=15)
             send_to_ui(asset, tf, force=True, full=True)
         except Exception as e:
-            log(f"⚠️ Timeframe change failed: {e}", 1)
+            log(f"[WARN] Timeframe change failed: {e}", 1)
     threading.Thread(target=run, daemon=True).start()
 
 @eel.expose
@@ -1887,9 +1882,9 @@ def reconnect_realtime():
                     await CLIENT.start_realtime_price(internal, period)
                     update_subscription_time()
                     send_to_ui(asset, timeframe, force=True, full=True)
-                    log(f"✅ Reconnection successful: {asset}/{timeframe}", 1)
+                    log(f"[OK] Reconnection successful: {asset}/{timeframe}", 1)
                 except Exception as e:
-                    log(f"❌ Reconnection failed: {e}", 1)
+                    log(f"[ERR] Reconnection failed: {e}", 1)
                     await full_reconnect()
 
             asyncio.run_coroutine_threadsafe(_reconnect(), ASYNC_LOOP)
@@ -1897,7 +1892,7 @@ def reconnect_realtime():
         async_reconnect()
         return {"status": "reconnecting", "asset": asset, "timeframe": timeframe}
     except Exception as e:
-        log(f"❌ Reconnect failed: {e}", 1)
+        log(f"[ERR] Reconnect failed: {e}", 1)
         return {"status": "error", "message": str(e)}
 
 # ======================
@@ -1906,9 +1901,8 @@ def reconnect_realtime():
 
 async def _train_ml_signals_async():
     """Async ML model training (non-blocking via thread pool)."""
-    # Try ML_SERVICE first (Phase A+), fall back to ENSEMBLE_GENERATOR (legacy)
-    if not ML_SERVICE and not ENSEMBLE_GENERATOR:
-        return {'error': 'ML signals not available'}
+    if not ML_SERVICE:
+        return {'error': 'ML signal service not available'}
 
     try:
         with STATE_LOCK:
@@ -1921,40 +1915,29 @@ async def _train_ml_signals_async():
 
         # Run synchronous training in thread pool to avoid blocking event loop
         loop = asyncio.get_event_loop()
-        if ML_SERVICE:
-            result = await loop.run_in_executor(
-                None, ML_SERVICE.train_all, asset, tf, candles
-            )
-        else:
-            # Fallback to legacy ensemble generator
-            result = await loop.run_in_executor(
-                None, ENSEMBLE_GENERATOR.ml.train, candles
-            )
+        result = await loop.run_in_executor(
+            None, ML_SERVICE.train_all, asset, tf, candles
+        )
 
-        log(f"🤖 ML training done: {result.get('accuracy', 'N/A')} accuracy", 1)
+        log(f"ML training done: {result.get('accuracy', 'N/A')} accuracy", 1)
         return result
     except Exception as e:
-        log(f"❌ ML training error: {e}", 1)
+        log(f"ML training error: {e}", 1)
         return {'error': str(e)}
 
 async def _train_ml_signals_async_single(asset: str, timeframe: str, candles: list):
     """Train ML models for a specific asset/timeframe."""
-    if not ML_SERVICE and not ENSEMBLE_GENERATOR:
-        return {'error': 'ML signals not available'}
+    if not ML_SERVICE:
+        return {'error': 'ML signal service not available'}
 
     try:
         if len(candles) < 100:
             return {'error': f'Need at least 100 candles, have {len(candles)}'}
 
         loop = asyncio.get_event_loop()
-        if ML_SERVICE:
-            result = await loop.run_in_executor(
-                None, ML_SERVICE.train_all, asset, timeframe, candles
-            )
-        else:
-            result = await loop.run_in_executor(
-                None, ENSEMBLE_GENERATOR.ml.train, candles
-            )
+        result = await loop.run_in_executor(
+            None, ML_SERVICE.train_all, asset, timeframe, candles
+        )
 
         return {'status': 'trained', 'asset': asset, 'timeframe': timeframe, **result}
     except Exception as e:
@@ -1964,8 +1947,7 @@ async def _train_ml_signals_async_single(asset: str, timeframe: str, candles: li
 
 async def _get_ml_signal_async():
     """Async ML signal generation (non-blocking via thread pool)."""
-    # Try ML_SERVICE first (Phase A+), fall back to ENSEMBLE_GENERATOR (legacy)
-    if not ML_SERVICE and not ENSEMBLE_GENERATOR:
+    if not ML_SERVICE:
         return None
 
     try:
@@ -1980,26 +1962,17 @@ async def _get_ml_signal_async():
         # Run signal generation in thread pool to avoid blocking event loop
         loop = asyncio.get_event_loop()
         try:
-            # Try new ML service first
-            if ML_SERVICE:
-                signal = await loop.run_in_executor(
-                    None, ML_SERVICE.generate_signal, asset, tf, candles
-                )
-                if signal:
-                    return signal.to_dict()
-            else:
-                # Fallback to legacy ensemble generator
-                signal = await loop.run_in_executor(
-                    None, ENSEMBLE_GENERATOR.generate_signal, candles
-                )
-                if signal:
-                    return signal.to_dict()
+            signal = await loop.run_in_executor(
+                None, ML_SERVICE.generate_signal, asset, tf, candles
+            )
+            if signal:
+                return signal.to_dict()
         except Exception as inner_e:
-            log(f"⚠️ ML signal inner error: {inner_e}", 2)
+            log(f"ML signal inner error: {inner_e}", 2)
 
         return None
     except Exception as e:
-        log(f"⚠️ ML signal error: {e}", 1)
+        log(f"[WARN] ML signal error: {e}", 1)
         return None
 
 # Global cache for ML results
@@ -2028,11 +2001,11 @@ def save_ml_models(training_result: Dict) -> bool:
 
         for model in all_models:
             if model in models_trained:
-                model_status[model] = "✅ trained"
+                model_status[model] = "[OK] trained"
             elif f"{model}_error" in training_result:
-                model_status[model] = f"❌ {training_result[f'{model}_error'][:50]}"
+                model_status[model] = f"[ERR] {training_result[f'{model}_error'][:50]}"
             else:
-                model_status[model] = "❌ not trained"
+                model_status[model] = "[ERR] not trained"
 
         model_data = {
             "timestamp": time.time(),
@@ -2049,12 +2022,12 @@ def save_ml_models(training_result: Dict) -> bool:
         with open(ML_MODELS_FILE, 'w', encoding='utf-8') as f:
             json.dump(model_data, f, indent=2)
 
-        print(f"✅ Saved ML models: {len(models_trained)}/{len(all_models)} trained")
+        print(f"[OK] Saved ML models: {len(models_trained)}/{len(all_models)} trained")
         for model, status in model_status.items():
             print(f"  {status}: {model}")
         return True
     except Exception as e:
-        print(f"❌ Failed to save ML models: {e}")
+        print(f"[ERR] Failed to save ML models: {e}")
         return False
 
 def load_ml_models() -> Dict:
@@ -2063,10 +2036,10 @@ def load_ml_models() -> Dict:
         if os.path.exists(ML_MODELS_FILE):
             with open(ML_MODELS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                print(f"✅ Loaded ML models from {ML_MODELS_FILE} (trained: {data.get('training_date')})")
+                print(f"[OK] Loaded ML models from {ML_MODELS_FILE} (trained: {data.get('training_date')})")
                 return data.get('result', {})
     except Exception as e:
-        print(f"⚠️ Failed to load ML models: {e}")
+        print(f"[WARN] Failed to load ML models: {e}")
     return {}
 
 @eel.expose
@@ -2087,7 +2060,7 @@ def train_ml_signals():
             if 'error' not in ML_TRAINING_RESULT:
                 save_ml_models(ML_TRAINING_RESULT)
         except Exception as e:
-            log(f"❌ Async training error: {e}", 1)
+            log(f"[ERR] Async training error: {e}", 1)
             ML_TRAINING_RESULT = {'error': str(e)}
 
     threading.Thread(target=run, daemon=True).start()
@@ -2115,7 +2088,7 @@ def get_ml_signal():
             )
             LAST_ML_SIGNAL = fut.result(timeout=5)
         except Exception as e:
-            log(f"⚠️ Async signal fetch error: {e}", 2)
+            log(f"[WARN] Async signal fetch error: {e}", 2)
             LAST_ML_SIGNAL = None
 
     threading.Thread(target=run, daemon=True).start()
@@ -2141,10 +2114,10 @@ def clear_ml_models():
     try:
         if os.path.exists(ML_MODELS_FILE):
             os.remove(ML_MODELS_FILE)
-            log(f"✅ Cleared ML models file", 1)
+            log(f"[OK] Cleared ML models file", 1)
             return {"success": True, "message": "ML models cleared"}
     except Exception as e:
-        log(f"⚠️ Failed to clear ML models: {e}", 1)
+        log(f"[WARN] Failed to clear ML models: {e}", 1)
         return {"success": False, "error": str(e)}
 
 # ======================
@@ -2163,22 +2136,22 @@ def get_signal_for_asset(asset: str, timeframe: str = "1m"):
     """
     global SIGNAL_MANAGER
     if not SIGNAL_MANAGER:
-        log(f"⚠️ get_signal_for_asset({asset}): SIGNAL_MANAGER is None", 1)
+        log(f"[WARN] get_signal_for_asset({asset}): SIGNAL_MANAGER is None", 1)
         return None
 
     signal = SIGNAL_MANAGER.get_signal(asset, timeframe)
     key = f"{asset}_{timeframe}"
 
     if signal:
-        log(f"✅ get_signal_for_asset({asset}): returning {signal.get('side')} @ {signal.get('confidence', 0):.2f}", 1)
+        log(f"[OK] get_signal_for_asset({asset}): returning {signal.get('side')} @ {signal.get('confidence', 0):.2f}", 1)
         return signal
 
     # Debug: show what's actually cached
     if SIGNAL_MANAGER.signal_cache:
         cached_keys = list(SIGNAL_MANAGER.signal_cache.keys())
-        log(f"⚠️ get_signal_for_asset({asset}): key '{key}' not found. Cached: {cached_keys}", 1)
+        log(f"[WARN] get_signal_for_asset({asset}): key '{key}' not found. Cached: {cached_keys}", 1)
     else:
-        log(f"⚠️ get_signal_for_asset({asset}): cache empty", 1)
+        log(f"[WARN] get_signal_for_asset({asset}): cache empty", 1)
 
     return None
 
@@ -2228,7 +2201,7 @@ def get_account_balances_sync():
         try:
             # First check if client/api is available without async call
             if not CLIENT or not CLIENT.api:
-                log("⚠️ get_account_balances_sync: CLIENT not available for sync call", 2)
+                log("[WARN] get_account_balances_sync: CLIENT not available for sync call", 2)
                 return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': 'Client not ready'}
 
             fut = asyncio.run_coroutine_threadsafe(get_account_balances(), ASYNC_LOOP)
@@ -2236,10 +2209,10 @@ def get_account_balances_sync():
             log(f"💰 Account balances: Real=${result['real']:.2f} Demo=${result['demo']:.2f} Mode={result['current_mode']}", 2)
             return result
         except asyncio.TimeoutError:
-            log("⚠️ Timeout getting account balances (>5s)", 1)
+            log("[WARN] Timeout getting account balances (>5s)", 1)
             return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': 'Timeout'}
         except Exception as e:
-            log(f"⚠️ Error in get_account_balances_sync: {type(e).__name__}: {e}", 1)
+            log(f"[WARN] Error in get_account_balances_sync: {type(e).__name__}: {e}", 1)
             return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': str(e)}
 
     # Run in thread to avoid blocking
@@ -2249,11 +2222,11 @@ def get_account_balances_sync():
     thread.join(timeout=15)
 
     if result[0] is None:
-        log("⚠️ Balance fetch thread timeout", 1)
+        log("[WARN] Balance fetch thread timeout", 1)
         return {'real': 0.0, 'demo': 0.0, 'current_mode': 'UNKNOWN', 'error': 'Thread timeout'}
 
     if result[0]:
-        log(f"✅ Returning balance: {result[0]}", 2)
+        log(f"[OK] Returning balance: {result[0]}", 2)
     return result[0]
 
 @eel.expose
@@ -2286,7 +2259,7 @@ def switch_account_mode(mode: str):
             # Get updated balances
             balances = asyncio.run_coroutine_threadsafe(get_account_balances(), ASYNC_LOOP).result(timeout=10)
 
-            log(f"✅ Switched to {mode_upper} mode", 1)
+            log(f"[OK] Switched to {mode_upper} mode", 1)
 
             return {
                 'success': True,
@@ -2296,10 +2269,10 @@ def switch_account_mode(mode: str):
                 'current_mode': balances['current_mode']
             }
         except asyncio.TimeoutError:
-            log(f"⚠️ Timeout switching to {mode} account", 1)
+            log(f"[WARN] Timeout switching to {mode} account", 1)
             return {'success': False, 'error': 'Timeout switching account'}
         except Exception as e:
-            log(f"⚠️ Failed to switch account: {e}", 1)
+            log(f"[WARN] Failed to switch account: {e}", 1)
             return {'success': False, 'error': str(e)}
 
     result = [None]
@@ -2368,7 +2341,7 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
 
         # Start signal generation thread
         SIGNAL_MANAGER.add_asset(asset, timeframe, get_candles_fn)
-        log(f"✅ Started signal generation for {asset} {timeframe}", 1)
+        log(f"[OK] Started signal generation for {asset} {timeframe}", 1)
 
         # Subscribe to real-time price stream to feed candles
         async def subscribe_to_realtime():
@@ -2377,7 +2350,7 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
                     return
                 internal = DISPLAY_TO_INTERNAL.get(asset)
                 if not internal:
-                    log(f"⚠️ No internal symbol for {asset}", 1)
+                    log(f"[WARN] No internal symbol for {asset}", 1)
                     return
 
                 # Use current or default timeframe for subscription
@@ -2386,9 +2359,9 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
 
                 log(f"📡 Subscribing {asset} to real-time stream ({tf})...", 1)
                 await CLIENT.start_realtime_price(internal, period)
-                log(f"✅ Subscribed {asset} to real-time price stream", 1)
+                log(f"[OK] Subscribed {asset} to real-time price stream", 1)
             except Exception as e:
-                log(f"⚠️ Failed to subscribe {asset} to real-time: {e}", 1)
+                log(f"[WARN] Failed to subscribe {asset} to real-time: {e}", 1)
 
         asyncio.run_coroutine_threadsafe(subscribe_to_realtime(), ASYNC_LOOP)
 
@@ -2404,7 +2377,7 @@ def start_signals_for_asset(asset: str, timeframe: str = "1m"):
 
         return {"success": True, "asset": asset, "timeframe": timeframe}
     except Exception as e:
-        log(f"❌ Failed to start signals for {asset}: {e}", 1)
+        log(f"[ERR] Failed to start signals for {asset}: {e}", 1)
         return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -2438,7 +2411,7 @@ def stop_signals_for_asset(asset: str, timeframe: str = "1m"):
 
         return {"success": True, "asset": asset, "timeframe": timeframe}
     except Exception as e:
-        log(f"❌ Failed to stop signals for {asset}: {e}", 1)
+        log(f"[ERR] Failed to stop signals for {asset}: {e}", 1)
         return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -2471,14 +2444,14 @@ def set_signal_pairs(pairs: List[str]):
         if pair in ASSET_DISPLAY_MAP.values():
             valid_pairs.append(pair)
         else:
-            log(f"⚠️ Invalid asset pair: {pair}", 1)
+            log(f"[WARN] Invalid asset pair: {pair}", 1)
 
     if not valid_pairs:
         return {"success": False, "error": "No valid pairs provided"}
 
     SIGNAL_PAIRS = valid_pairs
     if save_selected_pairs(valid_pairs):
-        log(f"✅ Signal pairs updated: {valid_pairs}", 1)
+        log(f"[OK] Signal pairs updated: {valid_pairs}", 1)
         return {"success": True, "pairs": valid_pairs}
     else:
         return {"success": False, "error": "Failed to save pairs"}
@@ -2556,7 +2529,7 @@ def report_trade_outcome(profit: float, components: dict, side: str, entry: floa
 			"current_weights": stats.get("current_weights", {}),
 		}
 	except Exception as e:
-		log(f"⚠️ Error reporting trade outcome: {e}", 2)
+		log(f"[WARN] Error reporting trade outcome: {e}", 2)
 		return {"success": False, "error": str(e)}
 
 # ======================
@@ -2589,7 +2562,7 @@ def get_automation_status():
 		).result(timeout=3)
 		status['balances'] = balances
 	except Exception as balance_error:
-		log(f"⚠️ Could not fetch balances (non-fatal): {balance_error}", 2)
+		log(f"[WARN] Could not fetch balances (non-fatal): {balance_error}", 2)
 		status['balances'] = {}
 
 	# Add trading mode (BUG FIX #13: Handle settings import)
@@ -2631,9 +2604,9 @@ def enable_automation():
 			try:
 				# Use display names directly - real-time streaming updates CANDLES with display names
 				_start_signal_generation(pair, "1m")
-				log(f"   ✅ Started signal generation for {pair}", 1)
+				log(f"   [OK] Started signal generation for {pair}", 1)
 			except Exception as e:
-				log(f"   ⚠️ Failed to start signals for {pair}: {e}", 2)
+				log(f"   [WARN] Failed to start signals for {pair}: {e}", 2)
 
 		# BUG FIX #13: Start signal polling loop (the critical missing link)
 		if ASYNC_LOOP and not SIGNAL_POLLING_RUNNING:
@@ -2652,7 +2625,7 @@ def enable_automation():
 			"message": f"Automation enabled. Signal generation started for {len(selected_pairs)} pairs"
 		}
 	except Exception as e:
-		log(f"❌ Error enabling automation: {e}", 1)
+		log(f"[ERR] Error enabling automation: {e}", 1)
 		return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -2698,7 +2671,7 @@ def disable_automation():
 		log("⏹️  AUTOMATION DISABLED - Signal generation stopped", 1)
 		return {"success": True, "message": "Automation disabled"}
 	except Exception as e:
-		log(f"❌ Error disabling automation: {e}", 1)
+		log(f"[ERR] Error disabling automation: {e}", 1)
 		return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -2729,7 +2702,7 @@ def get_automation_diagnostics():
 
 		return diagnostics
 	except Exception as e:
-		log(f"❌ Error getting automation diagnostics: {e}", 2)
+		log(f"[ERR] Error getting automation diagnostics: {e}", 2)
 		return {"error": str(e)}
 
 @eel.expose
@@ -2790,7 +2763,7 @@ def get_executed_trades():
 			})
 		return list(reversed(result))  # Return newest first
 	except Exception as e:
-		log(f"⚠️ Error getting executed trades: {e}", 2)
+		log(f"[WARN] Error getting executed trades: {e}", 2)
 		return []
 
 @eel.expose
@@ -2836,7 +2809,7 @@ def get_trade_statistics():
 
 		return stats
 	except Exception as e:
-		log(f"⚠️ Error getting trade statistics: {e}", 2)
+		log(f"[WARN] Error getting trade statistics: {e}", 2)
 		return {'error': str(e)}
 
 @eel.expose
@@ -2868,7 +2841,7 @@ def get_real_time_balance():
 			).result(timeout=2)
 			return balances
 	except Exception as e:
-		log(f"⚠️ Error getting real-time balance: {e}", 2)
+		log(f"[WARN] Error getting real-time balance: {e}", 2)
 		return {}
 
 # ======================
@@ -2892,12 +2865,12 @@ def activate_pair(pair_name: str):
 	try:
 		success = AUTO_TRADING_MANAGER.activate_pair(pair_name)
 		if success:
-			log(f"✅ PAIR ACTIVATED: {pair_name}", 1)
+			log(f"[OK] PAIR ACTIVATED: {pair_name}", 1)
 			return {"success": True, "message": f"Activated {pair_name}"}
 		else:
 			return {"success": False, "error": f"Pair not found: {pair_name}"}
 	except Exception as e:
-		log(f"❌ Error activating pair: {e}", 1)
+		log(f"[ERR] Error activating pair: {e}", 1)
 		return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -2923,7 +2896,7 @@ def deactivate_pair(pair_name: str):
 		else:
 			return {"success": False, "error": f"Pair not found: {pair_name}"}
 	except Exception as e:
-		log(f"❌ Error deactivating pair: {e}", 1)
+		log(f"[ERR] Error deactivating pair: {e}", 1)
 		return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -2940,10 +2913,10 @@ def activate_all_pairs():
 
 	try:
 		count = AUTO_TRADING_MANAGER.activate_all_pairs()
-		log(f"✅ Activated all {count} pairs", 1)
+		log(f"[OK] Activated all {count} pairs", 1)
 		return {"success": True, "activated_count": count}
 	except Exception as e:
-		log(f"❌ Error activating all pairs: {e}", 1)
+		log(f"[ERR] Error activating all pairs: {e}", 1)
 		return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -2963,7 +2936,7 @@ def deactivate_all_pairs():
 		log(f"⏸️  Deactivated all {count} pairs", 1)
 		return {"success": True, "deactivated_count": count}
 	except Exception as e:
-		log(f"❌ Error deactivating all pairs: {e}", 1)
+		log(f"[ERR] Error deactivating all pairs: {e}", 1)
 		return {"success": False, "error": str(e)}
 
 @eel.expose
@@ -3249,15 +3222,15 @@ def export_order_history(filepath="order_history.json"):
 if __name__ == "__main__":
     print("🚀 Quotex Pro Trader — EEL COMPATIBLE v3.3 (COUNTDOWN FIX)")
     print(
-        "✅ EMA Offset | Rate-limited UI | Stable candle_start | Fast sleep | Anti-Sleep"
+        "[OK] EMA Offset | Rate-limited UI | Stable candle_start | Fast sleep | Anti-Sleep"
     )
 
     os.makedirs("frontend", exist_ok=True)
     if not os.path.exists("frontend/login/login.html"):
-        print("❌ Missing frontend/login/login.html")
+        print("[ERR] Missing frontend/login/login.html")
         sys.exit(1)
 
-    # ✅ Auto-Login from .env with type safety
+    # [OK] Auto-Login from .env with type safety
     if QUOTEX_EMAIL and QUOTEX_PASSWORD:
         # Type-safe: ensure we have strings
         email = str(QUOTEX_EMAIL)
@@ -3273,20 +3246,20 @@ if __name__ == "__main__":
                 )
                 ok, err = fut.result(timeout=60)
                 if ok:
-                    print("✅ Auto-login successful!")
+                    print("[OK] Auto-login successful!")
                     try:
                         eel.onLoginSuccess()()
                         print("[DEBUG] onLoginSuccess() called")
                         # Schedule automatic model retraining after login
                         _schedule_startup_retrain()
                     except Exception as eel_err:
-                        print(f"⚠️ onLoginSuccess() error: {eel_err}")
+                        print(f"[WARN] onLoginSuccess() error: {eel_err}")
                 else:
-                    print(f"❌ Auto-login failed: {err}")
+                    print(f"[ERR] Auto-login failed: {err}")
             except asyncio.TimeoutError:
-                print(f"❌ Auto-login timeout (>60s)")
+                print(f"[ERR] Auto-login timeout (>60s)")
             except Exception as e:
-                print(f"❌ Auto-login error: {e}")
+                print(f"[ERR] Auto-login error: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -3301,12 +3274,12 @@ if __name__ == "__main__":
             print("\n👋 Exiting...")
             sys.exit(0)
         except Exception as e:
-            print(f"❌ Startup failed: {e}")
+            print(f"[ERR] Startup failed: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
     else:
-        print("⚠️ No .env credentials found. Please login manually.")
+        print("[WARN] No .env credentials found. Please login manually.")
         try:
             eel.init("frontend")
             eel.start("login/login.html", size=(1280, 720), port=0, mode="chrome")
@@ -3314,5 +3287,5 @@ if __name__ == "__main__":
             print("\n👋 Exiting...")
             sys.exit(0)
         except Exception as e:
-            print(f"❌ Startup failed: {e}")
+            print(f"[ERR] Startup failed: {e}")
             sys.exit(1)
