@@ -3216,6 +3216,73 @@ def export_order_history(filepath="order_history.json"):
 			'message': f'Export failed: {str(e)}'
 		}
 
+@eel.expose
+def save_trading_configuration(config: dict):
+	"""Save trading configuration to trading_config.json.
+
+	Args:
+		config: Configuration dict with keys:
+			- riskPercent, maxPositionPercent, minTradeAmount
+			- timeframe, minTimeBetweenTrades, maxTradesPerDay
+			- startHour, endHour, minConfidence
+			- targetReturn, dailyLossLimit, maxDrawdown
+			- selectedPairs (list)
+
+	Returns:
+		Dict with {success: bool, message: str}
+	"""
+	try:
+		import json
+		config_path = Path("trading_config.json")
+
+		# Validate config
+		required_keys = ["riskPercent", "maxPositionPercent", "minTradeAmount",
+						"timeframe", "minTimeBetweenTrades", "maxTradesPerDay",
+						"startHour", "endHour", "minConfidence", "selectedPairs"]
+
+		missing = [k for k in required_keys if k not in config]
+		if missing:
+			return {
+				'success': False,
+				'message': f'Missing required config fields: {missing}'
+			}
+
+		# Save to file
+		with open(config_path, 'w') as f:
+			json.dump(config, f, indent=2)
+
+		log(f"Trading configuration saved: minConfidence={config['minConfidence']}%", 1)
+
+		return {
+			'success': True,
+			'message': 'Configuration saved successfully',
+			'config': config
+		}
+	except Exception as e:
+		log(f"Failed to save trading configuration: {e}", 1)
+		return {
+			'success': False,
+			'message': f'Save failed: {str(e)}'
+		}
+
+@eel.expose
+def load_trading_configuration():
+	"""Load trading configuration from trading_config.json.
+
+	Returns:
+		Dict with config or empty dict if file not found
+	"""
+	try:
+		import json
+		config_path = Path("trading_config.json")
+		if config_path.exists():
+			with open(config_path) as f:
+				return json.load(f)
+		return {}
+	except Exception as e:
+		log(f"Failed to load trading configuration: {e}", 1)
+		return {}
+
 # ======================
 # Main Entry - FIXED with Type Safety
 # ======================

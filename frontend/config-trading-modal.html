@@ -52,8 +52,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="maxTradesPerDayInput">Max Trades Per Day</label>
-                    <input type="number" id="maxTradesPerDayInput" min="1" max="1000" step="1" value="100">
+                    <label for="maxTradesInput">Max Trades Per Day</label>
+                    <input type="number" id="maxTradesInput" min="1" max="1000" step="1" value="100">
                     <small>Maximum number of trades allowed in a single day</small>
                 </div>
             </div>
@@ -99,8 +99,8 @@
                 <h3>⛔ Loss Limits</h3>
 
                 <div class="form-group">
-                    <label for="dailyLossLimitInput">Daily Loss Limit ($)</label>
-                    <input type="number" id="dailyLossLimitInput" min="0" max="100000" step="1" value="500">
+                    <label for="dailyLossInput">Daily Loss Limit ($)</label>
+                    <input type="number" id="dailyLossInput" min="0" max="100000" step="1" value="500">
                     <small>Stop trading if daily losses exceed this amount</small>
                 </div>
 
@@ -122,8 +122,39 @@
             <!-- Current Settings Display -->
             <div class="config-section">
                 <h3>📋 Current Settings Summary</h3>
-                <div id="settingsSummary" class="settings-summary">
-                    <!-- Auto-populated -->
+                <div class="settings-summary">
+                    <div class="summary-item">
+                        <div class="summary-label">Risk Per Trade</div>
+                        <div class="summary-value" id="riskPercentDisplay">2%</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Max Position</div>
+                        <div class="summary-value" id="maxPositionDisplay">10%</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Min Trade</div>
+                        <div class="summary-value" id="minTradeDisplay">$1</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Timeframe</div>
+                        <div class="summary-value" id="timeframeDisplay">1m</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Max Trades/Day</div>
+                        <div class="summary-value" id="maxTradesDisplay">100</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Trading Hours</div>
+                        <div class="summary-value" id="hoursDisplay">0:00 - 23:00</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Min Confidence</div>
+                        <div class="summary-value" id="minConfidenceDisplay">50%</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Daily Loss Limit</div>
+                        <div class="summary-value" id="dailyLossDisplay">$500</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -132,8 +163,8 @@
             <button class="btn btn-primary" onclick="saveConfiguration()">
                 💾 Save Configuration
             </button>
-            <button class="btn btn-secondary" onclick="resetConfiguration()">
-                🔄 Reset to Defaults
+            <button class="btn btn-secondary" onclick="updateSettingsSummary(); resetToDefaults && resetToDefaults()">
+                Reset to Defaults
             </button>
             <button class="btn btn-secondary" onclick="closeConfigModal()">
                 Close

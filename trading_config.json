@@ -7,7 +7,7 @@
   "maxTradesPerDay": 100,
   "startHour": 0,
   "endHour": 23,
-  "minConfidence": 50,
+  "minConfidence": 20,
   "targetReturn": 2.5,
   "dailyLossLimit": 500,
   "maxDrawdown": 20,

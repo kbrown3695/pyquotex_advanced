@@ -519,3 +519,99 @@ if (document.readyState === 'loading') {
 }
 
 console.log('✅ app.js v1.2 loaded — Initialization order fixed & hardened');
+
+// Trading Configuration Functions
+async function openConfigModal() {
+    document.getElementById('tradingConfigModal').classList.remove('hidden');
+    await loadConfiguration();
+    updateSettingsSummary();
+}
+
+function closeConfigModal() {
+    document.getElementById('tradingConfigModal').classList.add('hidden');
+}
+
+async function loadConfiguration() {
+    try {
+        const config = await eel.load_trading_configuration()();
+        if (!config) return;
+        document.getElementById('riskPercentInput').value = config.riskPercent || 2;
+        document.getElementById('maxPositionInput').value = config.maxPositionPercent || 10;
+        document.getElementById('minTradeInput').value = config.minTradeAmount || 20;
+        document.getElementById('timeframeSelect').value = config.timeframe || '1m';
+        document.getElementById('minTimeBetweenInput').value = config.minTimeBetweenTrades || 5;
+        document.getElementById('maxTradesInput').value = config.maxTradesPerDay || 100;
+        document.getElementById('startHourInput').value = config.startHour || 0;
+        document.getElementById('endHourInput').value = config.endHour || 23;
+        document.getElementById('minConfidenceInput').value = config.minConfidence || 50;
+        document.getElementById('dailyLossInput').value = config.dailyLossLimit || 500;
+    } catch (err) { console.error('Load config error:', err); }
+}
+
+async function saveConfiguration() {
+    try {
+        const selectedPairs = Array.from(document.querySelectorAll('.pair-checkbox:checked')).map(cb => cb.value);
+        const config = {
+            riskPercent: parseFloat(document.getElementById('riskPercentInput').value),
+            maxPositionPercent: parseFloat(document.getElementById('maxPositionInput').value),
+            minTradeAmount: parseFloat(document.getElementById('minTradeInput').value),
+            timeframe: document.getElementById('timeframeSelect').value,
+            minTimeBetweenTrades: parseInt(document.getElementById('minTimeBetweenInput').value),
+            maxTradesPerDay: parseInt(document.getElementById('maxTradesInput').value),
+            startHour: parseInt(document.getElementById('startHourInput').value),
+            endHour: parseInt(document.getElementById('endHourInput').value),
+            minConfidence: parseInt(document.getElementById('minConfidenceInput').value),
+            targetReturn: 2.5,
+            dailyLossLimit: parseFloat(document.getElementById('dailyLossInput').value),
+            maxDrawdown: 20,
+            selectedPairs: selectedPairs
+        };
+        const result = await eel.save_trading_configuration(config)();
+        if (result.success) toast('Configuration saved', 'success');
+        else toast('Save failed: ' + result.message, 'error');
+    } catch (err) { toast('Error saving configuration', 'error'); }
+}
+
+function updateSettingsSummary() {
+    const risk = document.getElementById('riskPercentInput')?.value || '2';
+    const max = document.getElementById('maxPositionInput')?.value || '10';
+    const min = document.getElementById('minTradeInput')?.value || '1';
+    const tf = document.getElementById('timeframeSelect')?.value || '1m';
+    const trades = document.getElementById('maxTradesInput')?.value || '100';
+    const hours = (document.getElementById('startHourInput')?.value || '0') + ':00 - ' + (document.getElementById('endHourInput')?.value || '23') + ':00';
+    const conf = document.getElementById('minConfidenceInput')?.value || '50';
+    const loss = document.getElementById('dailyLossInput')?.value || '500';
+    
+    // Update display elements if they exist
+    if (document.getElementById('riskPercentDisplay')) document.getElementById('riskPercentDisplay').textContent = risk + '%';
+    if (document.getElementById('maxPositionDisplay')) document.getElementById('maxPositionDisplay').textContent = max + '%';
+    if (document.getElementById('minTradeDisplay')) document.getElementById('minTradeDisplay').textContent = '$' + min;
+    if (document.getElementById('timeframeDisplay')) document.getElementById('timeframeDisplay').textContent = tf;
+    if (document.getElementById('maxTradesDisplay')) document.getElementById('maxTradesDisplay').textContent = trades;
+    if (document.getElementById('hoursDisplay')) document.getElementById('hoursDisplay').textContent = hours;
+    if (document.getElementById('minConfidenceDisplay')) document.getElementById('minConfidenceDisplay').textContent = conf + '%';
+    if (document.getElementById('dailyLossDisplay')) document.getElementById('dailyLossDisplay').textContent = '$' + loss;
+}
+
+window.openConfigModal = openConfigModal;
+window.closeConfigModal = closeConfigModal;
+window.saveConfiguration = saveConfiguration;
+window.updateSettingsSummary = updateSettingsSummary;
+
+function resetToDefaults() {
+    if (!confirm('Reset configuration to defaults?')) return;
+    document.getElementById('riskPercentInput').value = 2;
+    document.getElementById('maxPositionInput').value = 10;
+    document.getElementById('minTradeInput').value = 20;
+    document.getElementById('timeframeSelect').value = '1m';
+    document.getElementById('minTimeBetweenInput').value = 5;
+    document.getElementById('maxTradesInput').value = 100;
+    document.getElementById('startHourInput').value = 0;
+    document.getElementById('endHourInput').value = 23;
+    document.getElementById('minConfidenceInput').value = 50;
+    document.getElementById('dailyLossInput').value = 500;
+    updateSettingsSummary();
+    toast('Reset to defaults', 'info');
+}
+
+window.resetToDefaults = resetToDefaults;
