@@ -67,7 +67,7 @@ class IndicatorBase {
     destroy() {
         try {
             this._seriesList.forEach(series => {
-                try { this._cm?.mainChart?.removeSeries(series); } catch(e) {}
+                try { this._cm?.mainChart?.removeSeries(series); } catch (e) { }
             });
             this._seriesList = [];
             this._clearOwnMarkers();
@@ -91,7 +91,7 @@ class IndicatorBase {
     toggleVisibility() {
         this.visible = !this.visible;
         this._seriesList.forEach(series => {
-            try { series.applyOptions({ visible: this.visible }); } catch(e) {}
+            try { series.applyOptions({ visible: this.visible }); } catch (e) { }
         });
     }
 
@@ -123,7 +123,15 @@ class IndicatorBase {
     }
 
     createPaneLine(paneId, name, options) {
+        if (!this._cm || !this._cm.createPane) {
+            console.warn(`Cannot create pane line: chart manager not initialized`);
+            return null;
+        }
         const chart = this._cm.createPane(paneId, name);
+        if (!chart) {
+            console.warn(`Cannot create pane: createPane returned null for ${paneId}`);
+            return null;
+        }
         this._paneIds.add(paneId);
         const defaults = {
             priceScaleId: 'right',
@@ -137,7 +145,15 @@ class IndicatorBase {
     }
 
     createPaneHistogram(paneId, name, options) {
+        if (!this._cm || !this._cm.createPane) {
+            console.warn(`Cannot create pane histogram: chart manager not initialized`);
+            return null;
+        }
         const chart = this._cm.createPane(paneId, name);
+        if (!chart) {
+            console.warn(`Cannot create pane: createPane returned null for ${paneId}`);
+            return null;
+        }
         this._paneIds.add(paneId);
         const defaults = {
             priceScaleId: 'right',
@@ -188,7 +204,7 @@ class IndicatorBase {
             this._seriesList.forEach(series => {
                 try {
                     series.update({ time: currentTime, value: this._lastCalculatedValue });
-                } catch(e) {}
+                } catch (e) { }
             });
         }
     }
@@ -198,11 +214,11 @@ class IndicatorBase {
         const candleEnd = candle.time + timeframeSeconds;
         return now >= candleEnd;
     }
-    
+
     // ✅ FIX: Helper to add persistent signals that won't disappear
     _addPersistentSignal(time, type, position, color, shape, text) {
         const markerId = this._generateMarkerId(type, time);
-        
+
         // Only add if not already confirmed (prevents duplicates)
         if (!this._confirmedSignals.has(markerId)) {
             const marker = {
@@ -218,12 +234,12 @@ class IndicatorBase {
         }
         return null; // Already exists
     }
-    
+
     // ✅ FIX: Get all confirmed signals for rendering
     _getConfirmedMarkers() {
         return Array.from(this._confirmedSignals.values());
     }
-    
+
     // ✅ FIX: Clear signals for a specific candle time (optional cleanup)
     _removeSignalForTime(time) {
         for (const [key, marker] of this._confirmedSignals) {
@@ -2174,6 +2190,12 @@ Indicators.MACD = class extends IndicatorBase {
 
     init(cm) {
         super.init(cm);
+
+        if (!this._cm || !this._cm.createPane) {
+            console.warn('MACD: Chart manager not ready for pane creation');
+            return;
+        }
+
         this._macdLine = this.createPaneLine('macd_pane', 'MACD', {
             color: this.settings.macdColor,
             lineWidth: 2,
@@ -2203,6 +2225,10 @@ Indicators.MACD = class extends IndicatorBase {
 
     update(candles) {
         if (!candles || candles.length < this.settings.slowPeriod) return;
+        if (!this._macdLine || !this._signalLine || !this._histSeries) {
+            console.warn('MACD: Series not initialized, skipping update');
+            return;
+        }
 
         const closes = candles.map(c => c.close);
         const ema12 = this.calculateEMA(closes, this.settings.fastPeriod);
@@ -2340,7 +2366,9 @@ Indicators.ADX = class extends IndicatorBase {
 };
 `;
 
-// Awesome Oscillator
+// =============================================================================
+// Awesome Oscillator (Throttled Live Update)
+// =============================================================================
 const TPL_AO = `
 Indicators.AwesomeOscillator = class extends IndicatorBase {
     constructor() {
@@ -2349,57 +2377,137 @@ Indicators.AwesomeOscillator = class extends IndicatorBase {
             fastPeriod: 5,
             slowPeriod: 34,
             bullColor: '#00C510',
-            bearColor: '#ff0000'
+            bearColor: '#ff0000',
+            zeroColor: 'rgba(96,165,250,0.35)'
         };
         this._aoSeries = null;
+        this._zeroSeries = null;
+        this._hl2Buffer = [];
+        this._pendingRaf = null;
     }
 
     init(cm) {
         super.init(cm);
+
+        if (!this._cm || !this._cm.createPane) {
+            console.warn('AwesomeOscillator: Chart manager not ready for pane creation');
+            this._initialized = false;
+            return;
+        }
+
+        this._zeroSeries = this.createPaneLine('ao_pane', 'AO Zero', {
+            color: this.settings.zeroColor,
+            lineWidth: 1,
+            lineStyle: 2,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            title: 'Zero'
+        });
+
         this._aoSeries = this.createPaneHistogram('ao_pane', 'Awesome Oscillator', {
             color: this.settings.bullColor,
+            priceFormat: { type: 'price', precision: 5, minMove: 0.00001 },
             title: 'AO'
         });
     }
 
-    calculateSMA(prices, period) {
-        if (prices.length < period) return [];
-        const sma = [];
-        for (let i = period - 1; i < prices.length; i++) {
-            const sum = prices.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-            sma.push(sum / period);
+    _sma(values, period) {
+        const out = new Array(values.length).fill(null);
+        if (values.length < period) return out;
+        let sum = 0;
+        for (let i = 0; i < values.length; i++) {
+            sum += values[i];
+            if (i >= period) sum -= values[i - period];
+            if (i >= period - 1) out[i] = sum / period;
         }
-        return sma;
+        return out;
     }
 
     update(candles) {
-        if (!candles || candles.length < this.settings.slowPeriod) return;
+        try {
+            if (!candles || candles.length < this.settings.slowPeriod) return;
+            if (!this._aoSeries || !this._zeroSeries) {
+                console.warn('AwesomeOscillator: Series not initialized, skipping update');
+                return;
+            }
 
-        const hl2 = candles.map(c => (c.high + c.low) / 2);
-        const fast = this.calculateSMA(hl2, this.settings.fastPeriod);
-        const slow = this.calculateSMA(hl2, this.settings.slowPeriod);
+            const hl2 = candles.map(c => (c.high + c.low) / 2);
+            this._hl2Buffer = hl2.slice(-this.settings.slowPeriod);
 
-        const aoData = [];
-        const offset = hl2.length - slow.length;
+            const fast = this._sma(hl2, this.settings.fastPeriod);
+            const slow = this._sma(hl2, this.settings.slowPeriod);
 
-        for (let i = 0; i < slow.length; i++) {
-            const ao = fast[i + offset] - slow[i];
-            const color = ao > 0 ? this.settings.bullColor : this.settings.bearColor;
-            aoData.push({
-                time: candles[i + offset].time,
-                value: ao,
-                color: color
-            });
-        }
+            const histData = [];
+            const zeroData = [];
 
-        if (aoData.length > 0) {
-            this._aoSeries?.setData(aoData);
-        }
-        this._initialized = true;
+            for (let i = 0; i < candles.length; i++) {
+                if (fast[i] === null || slow[i] === null) continue;
+
+                const ao = fast[i] - slow[i];
+                histData.push({
+                    time: candles[i].time,
+                    value: ao,
+                    color: ao >= 0 ? this.settings.bullColor : this.settings.bearColor
+                });
+                zeroData.push({ time: candles[i].time, value: 0 });
+            }
+
+            if (histData.length > 0) {
+                this._zeroSeries?.setData(zeroData);
+                this._aoSeries?.setData(histData);
+            }
+            this._initialized = true;
+        } catch (e) { console.warn('AO update error:', e); }
+    }
+
+    updateLast(candle) {
+        if (!this._initialized || !candle) return;
+        if (this._hl2Buffer.length < this.settings.slowPeriod) return;
+
+        // ✅ THROTTLE: coalesce all tick updates within one animation frame
+        // into a single series.update(). Without this, a fast tick stream
+        // causes the histogram pane to fall behind the main chart's repaint.
+        if (this._pendingRaf) return;
+        this._pendingRaf = requestAnimationFrame(() => {
+            this._pendingRaf = null;
+            this._doUpdateLast(candle);
+        });
+    }
+
+    _doUpdateLast(candle) {
+        if (!this._initialized || !candle) return;
+        if (this._hl2Buffer.length < this.settings.slowPeriod) return;
+
+        const liveHl2 = (candle.high + candle.low) / 2;
+
+        const fastWindow = this._hl2Buffer.slice(-this.settings.fastPeriod + 1).concat(liveHl2);
+        const fastSma = fastWindow.reduce((a, b) => a + b, 0) / this.settings.fastPeriod;
+
+        const slowWindow = this._hl2Buffer.slice(1).concat(liveHl2);
+        const slowSma = slowWindow.reduce((a, b) => a + b, 0) / this.settings.slowPeriod;
+
+        const liveAo = fastSma - slowSma;
+        const liveColor = liveAo >= 0 ? this.settings.bullColor : this.settings.bearColor;
+
+        console.log('[AO render]', {
+            liveTime: candle.time,
+            value: liveAo.toFixed(6),
+            timestamp: new Date(candle.time * 1000).toISOString()
+        });
+
+        this._zeroSeries?.update({ time: candle.time, value: 0 });
+        this._aoSeries?.update({ time: candle.time, value: liveAo, color: liveColor });
     }
 
     destroy() {
+        if (this._pendingRaf) {
+            cancelAnimationFrame(this._pendingRaf);
+            this._pendingRaf = null;
+        }
         this._aoSeries = null;
+        this._zeroSeries = null;
+        this._hl2Buffer = [];
         super.destroy();
     }
 };
@@ -2415,7 +2523,7 @@ const TEMPLATES = {
         help: `
 CONFIGURABLE MOVING AVERAGE SETTINGS:
 
-📊 MA Type Selection:
+📊 MA Type Selection:   
    • SMA - Simple Moving Average (arithmetic mean)
    • EMA - Exponential Moving Average (weighs recent prices more)
    • WMA - Weighted Moving Average (linearly weighted)
