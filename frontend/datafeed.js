@@ -582,7 +582,7 @@ function updateChart(data) {
             }
 
             // ✅ Restore persistent indicators (e.g., oscillators) after timeframe changes
-            if (AppState.persistentIndicators && AppState.persistentIndicators.size > 0) {
+            if (AppState.persistentIndicators && AppState.persistentIndicators.size > 0 && CM && CM.mainChart) {
                 console.log(`🔄 Restoring ${AppState.persistentIndicators.size} persistent indicators...`);
                 for (const indicatorName of AppState.persistentIndicators) {
                     try {
@@ -605,6 +605,8 @@ function updateChart(data) {
                         console.warn(`⚠️ Failed to restore persistent indicator ${indicatorName}:`, e);
                     }
                 }
+            } else if (AppState.persistentIndicators && AppState.persistentIndicators.size > 0) {
+                console.warn(`⚠️ Chart manager not ready; deferring persistent indicator restoration`);
             }
 
             // ✅ Redraw ML signal markers after timeframe/asset change
