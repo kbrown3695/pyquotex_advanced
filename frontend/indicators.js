@@ -1849,10 +1849,8 @@ Indicators.ConfigurableMA = class extends IndicatorBase {
             this.settings.maType = e.target.value;
             this._updateLabel();
             // Trigger recalculation with stored buffer if available
-            if (window.AppState && window.AppState.candles && window.AppState.currentAsset && window.AppState.currentTimeframe) {
-                const candles = window.AppState.candles[window.AppState.currentAsset]?.[window.AppState.currentTimeframe] || [];
-                if (candles.length > 0) this.update(candles);
-            }
+            const candles = window.AppState?.currentCandles || [];
+            if (candles.length > 0) this.update(candles);
         });
 
         periodInput.addEventListener('input', (e) => {
@@ -1863,10 +1861,8 @@ Indicators.ConfigurableMA = class extends IndicatorBase {
         periodInput.addEventListener('change', () => {
             this._updateLabel();
             // Trigger recalculation
-            if (window.AppState && window.AppState.candles && window.AppState.currentAsset && window.AppState.currentTimeframe) {
-                const candles = window.AppState.candles[window.AppState.currentAsset]?.[window.AppState.currentTimeframe] || [];
-                if (candles.length > 0) this.update(candles);
-            }
+            const candles = window.AppState?.currentCandles || [];
+            if (candles.length > 0) this.update(candles);
         });
 
         colorInput.addEventListener('change', (e) => {
@@ -2332,16 +2328,21 @@ Indicators.ADX = class extends IndicatorBase {
         const adxData = [], pdiData = [], mdiData = [];
         const period = this.settings.period;
 
-        for (let i = period - 1; i < tr.length; i++) {
-            const trAvg = tr.slice(Math.max(0, i-period+1), i+1).reduce((a,b)=>a+b)/Math.min(period, i+1);
-            const pdm = plusDM.slice(Math.max(0, i-period+1), i+1).reduce((a,b)=>a+b)/Math.min(period, i+1);
-            const mdm = minusDM.slice(Math.max(0, i-period+1), i+1).reduce((a,b)=>a+b)/Math.min(period, i+1);
+        for (let i = 0; i < candles.length; i++) {
+            if (i === 0) {
+                adxData.push({ time: candles[i].time });
+                pdiData.push({ time: candles[i].time });
+                mdiData.push({ time: candles[i].time });
+            } else {
+                const trIdx = i - 1;
+                const trAvg = tr.slice(Math.max(0, trIdx-period+1), trIdx+1).reduce((a,b)=>a+b)/Math.min(period, trIdx+1);
+                const pdm = plusDM.slice(Math.max(0, trIdx-period+1), trIdx+1).reduce((a,b)=>a+b)/Math.min(period, trIdx+1);
+                const mdm = minusDM.slice(Math.max(0, trIdx-period+1), trIdx+1).reduce((a,b)=>a+b)/Math.min(period, trIdx+1);
 
-            const pdi = (trAvg > 0) ? (pdm / trAvg) * 100 : 0;
-            const mdi = (trAvg > 0) ? (mdm / trAvg) * 100 : 0;
-            const dx = (pdi + mdi > 0) ? (Math.abs(pdi - mdi) / (pdi + mdi)) * 100 : 0;
+                const pdi = (trAvg > 0) ? (pdm / trAvg) * 100 : 0;
+                const mdi = (trAvg > 0) ? (mdm / trAvg) * 100 : 0;
+                const dx = (pdi + mdi > 0) ? (Math.abs(pdi - mdi) / (pdi + mdi)) * 100 : 0;
 
-            if (i < period + period - 1) {
                 const adx = Math.min(100, Math.max(0, dx));
                 adxData.push({ time: candles[i].time, value: adx });
                 pdiData.push({ time: candles[i].time, value: pdi });
@@ -2433,7 +2434,7 @@ Indicators.AwesomeOscillator = class extends IndicatorBase {
             }
 
             const hl2 = candles.map(c => (c.high + c.low) / 2);
-            this._hl2Buffer = hl2.slice(-this.settings.slowPeriod);
+            this._hl2Buffer = hl2.slice(0, -1).slice(-this.settings.slowPeriod);
 
             const fast = this._sma(hl2, this.settings.fastPeriod);
             const slow = this._sma(hl2, this.settings.slowPeriod);
@@ -2442,15 +2443,18 @@ Indicators.AwesomeOscillator = class extends IndicatorBase {
             const zeroData = [];
 
             for (let i = 0; i < candles.length; i++) {
-                if (fast[i] === null || slow[i] === null) continue;
-
-                const ao = fast[i] - slow[i];
-                histData.push({
-                    time: candles[i].time,
-                    value: ao,
-                    color: ao >= 0 ? this.settings.bullColor : this.settings.bearColor
-                });
-                zeroData.push({ time: candles[i].time, value: 0 });
+                if (fast[i] === null || slow[i] === null) {
+                    histData.push({ time: candles[i].time });
+                    zeroData.push({ time: candles[i].time, value: 0 });
+                } else {
+                    const ao = fast[i] - slow[i];
+                    histData.push({
+                        time: candles[i].time,
+                        value: ao,
+                        color: ao >= 0 ? this.settings.bullColor : this.settings.bearColor
+                    });
+                    zeroData.push({ time: candles[i].time, value: 0 });
+                }
             }
 
             if (histData.length > 0) {
@@ -2463,7 +2467,7 @@ Indicators.AwesomeOscillator = class extends IndicatorBase {
 
     updateLast(candle) {
         if (!this._initialized || !candle) return;
-        if (this._hl2Buffer.length < this.settings.slowPeriod) return;
+        if (this._hl2Buffer.length < this.settings.slowPeriod - 1) return;
 
         // ✅ THROTTLE: coalesce all tick updates within one animation frame
         // into a single series.update(). Without this, a fast tick stream
@@ -2477,24 +2481,18 @@ Indicators.AwesomeOscillator = class extends IndicatorBase {
 
     _doUpdateLast(candle) {
         if (!this._initialized || !candle) return;
-        if (this._hl2Buffer.length < this.settings.slowPeriod) return;
+        if (this._hl2Buffer.length < this.settings.slowPeriod - 1) return;
 
         const liveHl2 = (candle.high + candle.low) / 2;
 
-        const fastWindow = this._hl2Buffer.slice(-this.settings.fastPeriod + 1).concat(liveHl2);
+        const fastWindow = this._hl2Buffer.slice(-(this.settings.fastPeriod - 1)).concat(liveHl2);
         const fastSma = fastWindow.reduce((a, b) => a + b, 0) / this.settings.fastPeriod;
 
-        const slowWindow = this._hl2Buffer.slice(1).concat(liveHl2);
+        const slowWindow = this._hl2Buffer.slice(-(this.settings.slowPeriod - 1)).concat(liveHl2);
         const slowSma = slowWindow.reduce((a, b) => a + b, 0) / this.settings.slowPeriod;
 
         const liveAo = fastSma - slowSma;
         const liveColor = liveAo >= 0 ? this.settings.bullColor : this.settings.bearColor;
-
-        console.log('[AO render]', {
-            liveTime: candle.time,
-            value: liveAo.toFixed(6),
-            timestamp: new Date(candle.time * 1000).toISOString()
-        });
 
         this._zeroSeries?.update({ time: candle.time, value: 0 });
         this._aoSeries?.update({ time: candle.time, value: liveAo, color: liveColor });
