@@ -21,7 +21,7 @@ class WebsocketClient:
         self.headers = {
             "User-Agent": self.api.session_data.get("user_agent"),
             "Origin": self.api.https_url,
-            "Host": f"ws2.{self.api.host}",
+            "Host": "ws2.quotex.io",
         }
 
         websocket.enableTrace(self.api.trace_ws)

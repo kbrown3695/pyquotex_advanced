@@ -97,7 +97,7 @@ class QuotexAPI:
 
         self.host = host
         self.https_url = f"https://{host}"
-        self.wss_url = f"wss://ws2.{host}/socket.io/?EIO=3&transport=websocket"
+        self.wss_url = "wss://ws2.quotex.io/socket.io/?EIO=3&transport=websocket"
         self.wss_message = None
         self.websocket_thread = None
         self.websocket_client = None
@@ -455,7 +455,7 @@ class QuotexAPI:
             "ping_timeout": 20,
             "ping_payload": "2",
             "origin": self.https_url,
-            "host": f"ws2.{self.host}",
+            "host": "ws2.quotex.io",
             "sslopt": {
                 "check_hostname": True,
                 "cert_reqs": ssl.CERT_REQUIRED,

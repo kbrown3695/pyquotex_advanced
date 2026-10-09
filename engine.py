@@ -3337,10 +3337,11 @@ if __name__ == "__main__":
             print("\n👋 Exiting...")
             sys.exit(0)
         except Exception as e:
-            print(f"[ERR] Startup failed: {e}")
+            print(f"[ERR] Startup failed: {type(e).__name__}:{e}")
             import traceback
             traceback.print_exc()
-            sys.exit(1)
+            # sys.exit(1)
+            input("press Enter to exist ...")
     else:
         print("[WARN] No .env credentials found. Please login manually.")
         try:

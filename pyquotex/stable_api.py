@@ -34,7 +34,7 @@ class Quotex:
             self,
             email: str = None,
             password: str = None,
-            host: str = "qxbroker.com",
+            host: str = "quotex.com",
             lang: str = "pt",
             user_agent: str = "Quotex/1.0",
             root_path: str = ".",
